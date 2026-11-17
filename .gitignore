@@ -19,3 +19,7 @@ temp/babel-plugin-react-intl
 /.vscode
 
 webpack.dev-tutor.config.js
+
+### Local checkouts of other repos, never part of this one ###
+/frontend-component-footer
+/frontend-component-header
