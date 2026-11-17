@@ -51,7 +51,8 @@
     "react-helmet": "^6.1.0",
     "react-router": "6.30.3",
     "react-router-dom": "6.30.3",
-    "regenerator-runtime": "0.14.1"
+    "regenerator-runtime": "0.14.1",
+    "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
     "@edx/browserslist-config": "^1.1.1",
