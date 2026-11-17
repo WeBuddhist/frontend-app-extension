@@ -156,6 +156,9 @@ describe('what the server says', () => {
     expect(result.current.state).toMatchObject({ participantCount: 4, teacherHere: true });
     act(() => socket.hear('presence', { count: 3, teacherHere: false }));
     expect(result.current.state).toMatchObject({ participantCount: 3, teacherHere: false });
+    // A student is told only whether the teacher is here, with no count: the count is kept.
+    act(() => socket.hear('presence', { teacherHere: true }));
+    expect(result.current.state).toMatchObject({ participantCount: 3, teacherHere: true });
   });
 
   it.each([

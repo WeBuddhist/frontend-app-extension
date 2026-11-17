@@ -135,7 +135,9 @@ export function useRoom(code: string): Room {
       });
       socket.on('presence', ({ count, teacherHere }) => {
         setState((previous) => (
-          previous ? { ...previous, participantCount: count, teacherHere } : previous
+          previous
+            ? { ...previous, participantCount: count ?? previous.participantCount, teacherHere }
+            : previous
         ));
       });
       // The session ending does not send anyone away: the class stays open to read and to make
