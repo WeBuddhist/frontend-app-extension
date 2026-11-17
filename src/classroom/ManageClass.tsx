@@ -7,8 +7,9 @@ import {
 } from '@openedx/paragon';
 
 import {
-  archiveClass, changeCode, listMembers, removeMember,
+  archiveClass, changeCode, getClassDates, listMembers, removeMember, setClassDates,
 } from './api';
+import { datesInOrder } from './classDates';
 import messages from './messages';
 import type { Member } from './types';
 
@@ -55,6 +56,9 @@ const ManageClass = ({
   >(null);
   const [copied, setCopied] = useState(false);
   const [changedTo, setChangedTo] = useState<string | null>(null);
+  const [startsOn, setStartsOn] = useState('');
+  const [endsOn, setEndsOn] = useState('');
+  const [datesSaved, setDatesSaved] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -77,8 +81,20 @@ const ManageClass = ({
       setConfirming(null);
       setQuery('');
       setChangedTo(null);
+      setDatesSaved(false);
       loadRef.current();
+      (async () => {
+        try {
+          const dates = await getClassDates(code);
+          setStartsOn(dates?.startsOn ?? '');
+          setEndsOn(dates?.endsOn ?? '');
+        } catch {
+          // The dates are an extra: the other tabs work without them.
+        }
+      })();
     }
+  // The code is read when the dialog opens; changing it later does not reload anything.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   /** Run one of the tools, showing whatever goes wrong rather than failing silently. */
@@ -142,6 +158,11 @@ const ManageClass = ({
     setConfirming(null);
     setChangedTo(result.code);
     onCodeChanged(result.code);
+  });
+
+  const saveDates = () => run(async () => {
+    await setClassDates(code, { startsOn, endsOn });
+    setDatesSaved(true);
   });
 
   const archive = () => run(async () => {
@@ -293,6 +314,51 @@ const ManageClass = ({
                   {intl.formatMessage(messages.changeCode)}
                 </Button>
               )}
+            </div>
+          </Tab>
+
+          {/* -- Dates ----------------------------------------------------------- */}
+          <Tab eventKey="dates" title={intl.formatMessage(messages.tabDates)}>
+            <div className="classroom-manage__panel">
+              <h3 className="classroom-manage__heading">{intl.formatMessage(messages.datesHeading)}</h3>
+              <p className="classroom-manage__hint">{intl.formatMessage(messages.datesHelp)}</p>
+              <div className="classroom-page__dates">
+                <Form.Group>
+                  <Form.Label>{intl.formatMessage(messages.startsLabel)}</Form.Label>
+                  <Form.Control
+                    type="date"
+                    value={startsOn}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      setStartsOn(e.target.value);
+                      setDatesSaved(false);
+                    }}
+                  />
+                </Form.Group>
+                <Form.Group>
+                  <Form.Label>{intl.formatMessage(messages.endsLabel)}</Form.Label>
+                  <Form.Control
+                    type="date"
+                    value={endsOn}
+                    min={startsOn || undefined}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      setEndsOn(e.target.value);
+                      setDatesSaved(false);
+                    }}
+                  />
+                </Form.Group>
+              </div>
+              {!datesInOrder(startsOn, endsOn) && (
+                <p className="classroom-page__error" role="alert">{intl.formatMessage(messages.datesOutOfOrder)}</p>
+              )}
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={busy || !datesInOrder(startsOn, endsOn)}
+                onClick={saveDates}
+              >
+                {intl.formatMessage(messages.saveDates)}
+              </Button>
+              {datesSaved && <p className="classroom-manage__hint" role="status">{intl.formatMessage(messages.datesSaved)}</p>}
             </div>
           </Tab>
 

@@ -592,6 +592,51 @@ const messages = defineMessages({
     defaultMessage: 'Your notes are kept',
     description: 'Explains the leave-class menu item.',
   },
+  classesCount: {
+    id: 'extension.classroom.classesCount',
+    defaultMessage: '{count, plural, one {# class} other {# classes}}',
+    description: 'How many classes are in the list, under the heading.',
+  },
+  lastOpened: {
+    id: 'extension.classroom.lastOpened',
+    defaultMessage: 'Opened {date}',
+    description: 'When a class was last opened by this account.',
+  },
+  youTeach: {
+    id: 'extension.classroom.youTeach',
+    defaultMessage: "You're the teacher",
+    description: 'Label on a class in your list that you teach.',
+  },
+  continueTeaching: {
+    id: 'extension.classroom.continueTeaching',
+    defaultMessage: 'Continue teaching',
+    description: 'What pressing a class you teach does.',
+  },
+  classesYouTeach: {
+    id: 'extension.classroom.classesYouTeach',
+    defaultMessage: 'Classes you teach',
+    description: 'Heading over the classes the account teaches.',
+  },
+  classesYouJoined: {
+    id: 'extension.classroom.classesYouJoined',
+    defaultMessage: 'Classes you joined',
+    description: 'Heading over the classes the account is a student in, when it also teaches.',
+  },
+  haveCode: {
+    id: 'extension.classroom.haveCode',
+    defaultMessage: 'Have a code from a teacher?',
+    description: 'Prompt beside the link that opens the join form.',
+  },
+  joinWithCode: {
+    id: 'extension.classroom.joinWithCode',
+    defaultMessage: 'Join a class',
+    description: 'Link that opens the join-with-a-code form.',
+  },
+  startAnother: {
+    id: 'extension.classroom.startAnother',
+    defaultMessage: 'Start another class',
+    description: 'Link, for someone who already teaches a class, to start a new one.',
+  },
   leftRejoin: {
     id: 'extension.classroom.leftRejoin',
     defaultMessage: 'You left · Rejoin',
@@ -631,6 +676,71 @@ const messages = defineMessages({
     id: 'extension.classroom.manage.tabCode',
     defaultMessage: 'Class code',
     description: 'Tab that shows and changes the class code.',
+  },
+  tabDates: {
+    id: 'extension.classroom.manage.tabDates',
+    defaultMessage: 'Dates',
+    description: 'Tab for saying when the class is held.',
+  },
+  datesHeading: {
+    id: 'extension.classroom.dates.heading',
+    defaultMessage: 'When the class is held',
+    description: 'Heading over the start and end dates.',
+  },
+  datesHelp: {
+    id: 'extension.classroom.dates.help',
+    defaultMessage: 'Shown to everyone in the class. It does not close the class: archiving is still up to you.',
+    description: 'Explains the class dates.',
+  },
+  startsLabel: {
+    id: 'extension.classroom.dates.starts',
+    defaultMessage: 'First day (optional)',
+    description: 'Label for the date a class starts.',
+  },
+  endsLabel: {
+    id: 'extension.classroom.dates.ends',
+    defaultMessage: 'Last day (optional)',
+    description: 'Label for the date a class ends.',
+  },
+  datesOutOfOrder: {
+    id: 'extension.classroom.dates.outOfOrder',
+    defaultMessage: 'The last day cannot be before the first day.',
+    description: 'Shown when the end date is before the start date.',
+  },
+  saveDates: {
+    id: 'extension.classroom.dates.save',
+    defaultMessage: 'Save dates',
+    description: 'Button that saves the class dates.',
+  },
+  datesSaved: {
+    id: 'extension.classroom.dates.saved',
+    defaultMessage: 'Dates saved.',
+    description: 'Confirms the class dates were saved.',
+  },
+  datesRange: {
+    id: 'extension.classroom.dates.range',
+    defaultMessage: '{start} – {end}',
+    description: 'A class held between two days.',
+  },
+  datesFrom: {
+    id: 'extension.classroom.dates.from',
+    defaultMessage: 'From {start}',
+    description: 'A class with a first day and no last day.',
+  },
+  datesUntil: {
+    id: 'extension.classroom.dates.until',
+    defaultMessage: 'Until {end}',
+    description: 'A class with a last day and no first day.',
+  },
+  datesUpcoming: {
+    id: 'extension.classroom.dates.upcoming',
+    defaultMessage: 'Starts {start}',
+    description: 'A class that has not started yet.',
+  },
+  datesFinished: {
+    id: 'extension.classroom.dates.finished',
+    defaultMessage: 'Ended {end}',
+    description: 'A class whose last day has passed.',
   },
   tabArchive: {
     id: 'extension.classroom.manage.tabArchive',

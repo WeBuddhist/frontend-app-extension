@@ -251,3 +251,34 @@ describe('changing the code', () => {
     expect((await screen.findByRole('status')).textContent).toMatch(/NEW234/);
   });
 });
+
+describe('Dates', () => {
+  const openDates = async () => {
+    mocked.getClassDates.mockResolvedValue({ startsOn: '2026-03-12', endsOn: '2026-04-30' });
+    show();
+    await screen.findByText('Pema Lhamo');
+    await userEvent.click(screen.getByRole('tab', { name: 'Dates' }));
+  };
+
+  it('shows the days the class is held and saves a change', async () => {
+    mocked.setClassDates.mockResolvedValue(undefined);
+    await openDates();
+    const [from, to] = Array.from(document.querySelectorAll('input[type="date"]')) as HTMLInputElement[];
+    await waitFor(() => expect(from.value).toBe('2026-03-12'));
+    expect(to.value).toBe('2026-04-30');
+    await userEvent.clear(to);
+    await userEvent.type(to, '2026-05-15');
+    await userEvent.click(screen.getByRole('button', { name: 'Save dates' }));
+    await waitFor(() => expect(mocked.setClassDates).toHaveBeenCalledWith('ABC234', { startsOn: '2026-03-12', endsOn: '2026-05-15' }));
+    expect((await screen.findByRole('status')).textContent).toMatch(/saved/i);
+  });
+
+  it('will not save a last day before the first', async () => {
+    await openDates();
+    const to = document.querySelectorAll('input[type="date"]')[1] as HTMLInputElement;
+    await userEvent.clear(to);
+    await userEvent.type(to, '2026-01-01');
+    expect(await screen.findByText(/cannot be before/i)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Save dates' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});

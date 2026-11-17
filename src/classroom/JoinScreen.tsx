@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useIntl } from '@edx/frontend-platform/i18n';
 import { Button, Form, Spinner } from '@openedx/paragon';
 
+import { datesInOrder, dayOf, phaseOf } from './classDates';
+import { ChevronIcon } from './icons';
 import messages from './messages';
 import {
   createRoom, joinRoom, myClasses, searchTexts,
@@ -34,6 +36,7 @@ const JoinScreen = ({ initialCode, startMode = false, onEnter }: Props) => {
   const intl = useIntl();
   const [mode, setMode] = useState<Mode>(startMode ? 'start' : 'home');
   const [code, setCode] = useState(initialCode);
+  const [joinOpen, setJoinOpen] = useState(Boolean(initialCode));
 
   const [classes, setClasses] = useState<ClassSummary[] | null>(null);
   const [classesError, setClassesError] = useState<string | null>(null);
@@ -43,6 +46,8 @@ const JoinScreen = ({ initialCode, startMode = false, onEnter }: Props) => {
   const [searching, setSearching] = useState(false);
   const [textId, setTextId] = useState('');
   const [className, setClassName] = useState('');
+  const [startsOn, setStartsOn] = useState('');
+  const [endsOn, setEndsOn] = useState('');
   const [hostPassword, setHostPassword] = useState('');
 
   const [created, setCreated] = useState<CreatedRoom | null>(null);
@@ -120,7 +125,7 @@ const JoinScreen = ({ initialCode, startMode = false, onEnter }: Props) => {
     setBusy(true);
     setError(null);
     try {
-      setCreated(await createRoom(hostPassword, textId, className));
+      setCreated(await createRoom(hostPassword, textId, className, { startsOn, endsOn }));
       setMode('created');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not start the class.');
@@ -207,6 +212,28 @@ const JoinScreen = ({ initialCode, startMode = false, onEnter }: Props) => {
             />
             <Form.Text>{intl.formatMessage(messages.classNameHelp)}</Form.Text>
           </Form.Group>
+          <div className="classroom-page__dates">
+            <Form.Group>
+              <Form.Label>{intl.formatMessage(messages.startsLabel)}</Form.Label>
+              <Form.Control
+                type="date"
+                value={startsOn}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStartsOn(e.target.value)}
+              />
+            </Form.Group>
+            <Form.Group>
+              <Form.Label>{intl.formatMessage(messages.endsLabel)}</Form.Label>
+              <Form.Control
+                type="date"
+                value={endsOn}
+                min={startsOn || undefined}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEndsOn(e.target.value)}
+              />
+            </Form.Group>
+          </div>
+          {!datesInOrder(startsOn, endsOn) && (
+            <p className="classroom-page__error" role="alert">{intl.formatMessage(messages.datesOutOfOrder)}</p>
+          )}
           <Form.Group>
             <Form.Label>{intl.formatMessage(messages.hostPasswordLabel)}</Form.Label>
             <Form.Control
@@ -218,7 +245,7 @@ const JoinScreen = ({ initialCode, startMode = false, onEnter }: Props) => {
               autoComplete="current-password"
             />
           </Form.Group>
-          <Button type="submit" variant="primary" disabled={busy || !textId || !hostPassword}>
+          <Button type="submit" variant="primary" disabled={busy || !textId || !hostPassword || !datesInOrder(startsOn, endsOn)}>
             {intl.formatMessage(busy ? messages.starting : messages.start)}
           </Button>
         </Form>
@@ -228,9 +255,93 @@ const JoinScreen = ({ initialCode, startMode = false, onEnter }: Props) => {
   }
 
   // -- your classes, and joining a new one ----------------------------------
+  const teaching = (classes ?? []).filter((entry) => entry.role === 'teacher');
+  const attending = (classes ?? []).filter((entry) => entry.role !== 'teacher');
+  // The code form is the page's whole point for someone with no classes; for anyone else it is
+  // a small option at the bottom, opened when wanted.
+  const showJoin = classes !== null && (classes.length === 0 || joinOpen);
+
+  /** When the class is held, in words, or nothing when no dates were given. */
+  const datesText = (entry: ClassSummary): string | null => {
+    const { startsOn: from, endsOn: to } = entry;
+    if (!from && !to) { return null; }
+    const show = (iso: string) => intl.formatDate(dayOf(iso), { day: 'numeric', month: 'short', year: 'numeric' });
+    const phase = phaseOf(from, to);
+    if (phase === 'finished' && to) { return intl.formatMessage(messages.datesFinished, { end: show(to) }); }
+    if (phase === 'upcoming' && from) { return intl.formatMessage(messages.datesUpcoming, { start: show(from) }); }
+    if (from && to) { return intl.formatMessage(messages.datesRange, { start: show(from), end: show(to) }); }
+    if (from) { return intl.formatMessage(messages.datesFrom, { start: show(from) }); }
+    return to ? intl.formatMessage(messages.datesUntil, { end: show(to) }) : null;
+  };
+
+  const card = (entry: ClassSummary) => (
+    <li key={entry.code}>
+      <button
+        type="button"
+        className={`classroom-classes__item classroom-classes__item--${entry.role}`}
+        onClick={() => enterFromList(entry)}
+      >
+        <span className="classroom-classes__text">
+          <span className="classroom-classes__name" lang="bo">{entry.name}</span>
+          {entry.title && entry.title !== entry.name && (
+            <span className="classroom-classes__title" lang="bo">{entry.title}</span>
+          )}
+          <span className="classroom-classes__meta">
+            {entry.role === 'teacher' ? (
+              <span className="classroom-classes__role classroom-classes__role--teacher">
+                {intl.formatMessage(messages.youTeach)}
+              </span>
+            ) : (
+              <span className="classroom-classes__role classroom-classes__role--student">
+                {intl.formatMessage(messages.roleStudent)}
+              </span>
+            )}
+            {entry.left ? (
+              <span className="classroom-classes__left">{intl.formatMessage(messages.leftRejoin)}</span>
+            ) : (
+              <span>{intl.formatMessage(messages.memberCount, { count: entry.memberCount })}</span>
+            )}
+            {datesText(entry) && <span className="classroom-classes__dates">{datesText(entry)}</span>}
+            {entry.lastSeenAt && (
+              <span>
+                {intl.formatMessage(messages.lastOpened, {
+                  date: intl.formatDate(entry.lastSeenAt, { day: 'numeric', month: 'short' }),
+                })}
+              </span>
+            )}
+          </span>
+        </span>
+        {/* The teacher's card says what pressing it does: carry on teaching. */}
+        {entry.role === 'teacher' ? (
+          <span className="classroom-classes__continue">
+            {intl.formatMessage(messages.continueTeaching)}
+            <ChevronIcon size={18} />
+          </span>
+        ) : (
+          <span className="classroom-classes__go" aria-hidden="true"><ChevronIcon size={20} /></span>
+        )}
+      </button>
+    </li>
+  );
+
   return (
-    <div className="classroom-page classroom-page__entry classroom-page__join">
-      <h1>{intl.formatMessage(messages.yourClasses)}</h1>
+    <div className="classroom-page classroom-page__entry classroom-page__join classroom-page__home">
+      <div className="classroom-classes__head">
+        <div>
+          <h1>{intl.formatMessage(messages.yourClasses)}</h1>
+          {classes !== null && classes.length > 0 && (
+            <p className="classroom-classes__count">
+              {intl.formatMessage(messages.classesCount, { count: classes.length })}
+            </p>
+          )}
+        </div>
+        {/* Someone who already teaches starts another from here, where it is seen first. */}
+        {teaching.length > 0 && (
+          <Button variant="outline-primary" onClick={() => go('start')}>
+            {intl.formatMessage(messages.startAnother)}
+          </Button>
+        )}
+      </div>
 
       {classes === null && (
         <p className="classroom-page__sub">{intl.formatMessage(messages.loadingClasses)}</p>
@@ -239,68 +350,78 @@ const JoinScreen = ({ initialCode, startMode = false, onEnter }: Props) => {
       {classes !== null && classes.length === 0 && !classesError && (
         <p className="classroom-page__sub">{intl.formatMessage(messages.noClasses)}</p>
       )}
-      {classes !== null && classes.length > 0 && (
-        <ul className="classroom-classes">
-          {classes.map((entry) => (
-            <li key={entry.code}>
-              <button
-                type="button"
-                className="classroom-classes__item"
-                onClick={() => enterFromList(entry)}
-              >
-                <span className="classroom-classes__name" lang="bo">{entry.name}</span>
-                <span className="classroom-classes__meta">
-                  <span
-                    className={`classroom-classes__role classroom-classes__role--${entry.role}`}
-                  >
-                    {intl.formatMessage(
-                      entry.role === 'teacher' ? messages.roleTeacher : messages.roleStudent,
-                    )}
-                  </span>
-                  {entry.left ? (
-                    <span className="classroom-classes__left">{intl.formatMessage(messages.leftRejoin)}</span>
-                  ) : (
-                    <span>{intl.formatMessage(messages.memberCount, { count: entry.memberCount })}</span>
-                  )}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+
+      {teaching.length > 0 && (
+        <section className="classroom-classes__section" aria-labelledby="classes-teach">
+          <h2 id="classes-teach" className="classroom-classes__section-title">
+            {intl.formatMessage(messages.classesYouTeach)}
+          </h2>
+          <ul className="classroom-classes">{teaching.map(card)}</ul>
+        </section>
       )}
 
-      <Form onSubmit={join} className="classroom-classes__join">
-        <h2>{intl.formatMessage(messages.heading)}</h2>
-        <Form.Group>
-          <Form.Label>{intl.formatMessage(messages.codeLabel)}</Form.Label>
-          <Form.Control
-            value={code}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCode(
-              e.target.value.toUpperCase(),
-            )}
-            maxLength={ROOM_CODE_LENGTH}
-            autoComplete="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-          />
-          <Form.Text>{intl.formatMessage(messages.joinOnce)}</Form.Text>
-        </Form.Group>
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={busy || code.trim().length !== ROOM_CODE_LENGTH}
-        >
-          {intl.formatMessage(busy ? messages.joining : messages.join)}
-        </Button>
-        {problem}
-      </Form>
+      {attending.length > 0 && (
+        <section className="classroom-classes__section" aria-labelledby="classes-joined">
+          {teaching.length > 0 && (
+            <h2 id="classes-joined" className="classroom-classes__section-title">
+              {intl.formatMessage(messages.classesYouJoined)}
+            </h2>
+          )}
+          <ul className="classroom-classes">{attending.map(card)}</ul>
+        </section>
+      )}
 
-      <p className="classroom-page__switch">
-        {`${intl.formatMessage(messages.startFromList)} `}
-        <Button variant="link" onClick={() => go('start')}>
-          {intl.formatMessage(messages.startLink)}
-        </Button>
-      </p>
+      {classes !== null && classes.length > 0 && !showJoin && (
+        <p className="classroom-classes__codeprompt">
+          {`${intl.formatMessage(messages.haveCode)} `}
+          <Button variant="link" onClick={() => setJoinOpen(true)}>
+            {intl.formatMessage(messages.joinWithCode)}
+          </Button>
+        </p>
+      )}
+
+      {showJoin && (
+        <Form onSubmit={join} className="classroom-classes__join">
+          <h2>{intl.formatMessage(messages.heading)}</h2>
+          <Form.Group>
+            <Form.Label>{intl.formatMessage(messages.codeLabel)}</Form.Label>
+            <div className="classroom-classes__join-row">
+              <Form.Control
+                className="classroom-classes__code"
+                value={code}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCode(
+                  e.target.value.toUpperCase(),
+                )}
+                maxLength={ROOM_CODE_LENGTH}
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+              />
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={busy || code.trim().length !== ROOM_CODE_LENGTH}
+              >
+                {intl.formatMessage(busy ? messages.joining : messages.join)}
+              </Button>
+            </div>
+            <Form.Text>{intl.formatMessage(messages.joinOnce)}</Form.Text>
+          </Form.Group>
+          {problem}
+        </Form>
+      )}
+
+      {/* An error from rejoining, when the form that normally holds it is not open. */}
+      {!showJoin && problem}
+
+      {teaching.length === 0 && classes !== null && (
+        <p className="classroom-page__switch">
+          {`${intl.formatMessage(messages.startFromList)} `}
+          <Button variant="link" onClick={() => go('start')}>
+            {intl.formatMessage(messages.startLink)}
+          </Button>
+        </p>
+      )}
     </div>
   );
 };
