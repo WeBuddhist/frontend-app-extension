@@ -25,6 +25,8 @@ jest.mock('./useRoom');
 jest.mock('./useText');
 jest.mock('./useOutline', () => ({ useOutline: () => [] }));
 jest.mock('react-helmet', () => ({ Helmet: () => null }));
+// The shared page head sets the title *and* the site's favicon, as the other pages do.
+jest.mock('../Head', () => ({ __esModule: true, default: ({ title }: { title: string }) => <i data-head-title={title} /> }));
 
 const mockedApi = api as jest.Mocked<typeof api>;
 const mockedUseRoom = useRoom as jest.MockedFunction<typeof useRoom>;
@@ -83,6 +85,20 @@ const openManage = async () => {
   await openClassMenu();
   await userEvent.click(await screen.findByRole('button', { name: /manage class/i }));
 };
+
+describe('the page head', () => {
+  it('uses the shared head, so the page has the site\'s favicon and title like the others', () => {
+    open();
+    expect(document.querySelector('[data-head-title]')?.getAttribute('data-head-title')).toBe('Tuesday study group');
+  });
+
+  it('uses it on the list of classes too', async () => {
+    window.history.replaceState(null, '', '/classroom');
+    localStorage.clear();
+    render(<IntlProvider locale="en"><ClassroomPage /></IntlProvider>);
+    expect(document.querySelector('[data-head-title]')).not.toBeNull();
+  });
+});
 
 describe('a student', () => {
   it('sees the class name, with the text\'s title beneath it', () => {

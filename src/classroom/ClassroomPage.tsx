@@ -1,7 +1,6 @@
 import {
   useEffect, useMemo, useRef, useState,
 } from 'react';
-import { Helmet } from 'react-helmet';
 import { useIntl } from '@edx/frontend-platform/i18n';
 import { Button, useToggle } from '@openedx/paragon';
 
@@ -11,6 +10,7 @@ import LineStepper from './LineStepper';
 import StudentClassMenu from './StudentClassMenu';
 import SyncButton from './SyncButton';
 import ClassMenu from './ClassMenu';
+import Head from '../Head';
 import ConfirmDialog from './ConfirmDialog';
 import { NotesIcon } from './icons';
 import ManageClass from './ManageClass';
@@ -277,7 +277,7 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
 
   return (
     <div className="classroom-page">
-      <Helmet><title>{state?.name ?? intl.formatMessage(messages.pageTitle)}</title></Helmet>
+      <Head title={state?.name ?? intl.formatMessage(messages.pageTitle)} />
 
       <header ref={headerRef} className={`classroom-page__header${headerHidden ? ' classroom-page__header--hidden' : ''}`}>
         <div className="classroom-page__head">
@@ -541,7 +541,7 @@ const ClassroomPage = () => {
   if (!code) {
     return (
       <>
-        <Helmet><title>{intl.formatMessage(messages.pageTitle)}</title></Helmet>
+        <Head title={intl.formatMessage(messages.pageTitle)} />
         <JoinScreen
           initialCode={initialCode.toUpperCase()}
           startMode={startMode}
