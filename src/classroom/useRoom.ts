@@ -44,7 +44,18 @@ export function useRoom(code: string, displayName: string, hostToken?: string): 
   const socketRef = useRef<ClientSocket | null>(null);
 
   useEffect(() => {
-    const socket: ClientSocket = io(apiBase(), {
+    // apiBase() throws when the service is unconfigured in production. Inside an
+    // effect that would escape React rather than reach anyone's catch, so it is
+    // turned into the same error state a failed connection produces.
+    let base: string;
+    try {
+      base = apiBase();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The classroom is not configured.');
+      return undefined;
+    }
+
+    const socket: ClientSocket = io(base, {
       // A real WebSocket first. Polling stays as a fallback for restrictive networks,
       // where the teacher would see the highlight lag behind their own voice.
       transports: ['websocket', 'polling'],

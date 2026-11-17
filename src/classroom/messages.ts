@@ -164,6 +164,11 @@ const messages = defineMessages({
     defaultMessage: 'Checking…',
     description: 'Shown while a recovery code is verified.',
   },
+  follow: {
+    id: 'extension.classroom.follow',
+    defaultMessage: 'Follow the teacher',
+    description: 'Toggle that scrolls the reader to the line the class is on.',
+  },
   classEnded: {
     id: 'extension.classroom.classEnded',
     defaultMessage: 'This class has ended',

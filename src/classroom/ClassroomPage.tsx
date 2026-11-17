@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { useIntl } from '@edx/frontend-platform/i18n';
-import { Button } from '@openedx/paragon';
+import { Button, Form } from '@openedx/paragon';
 
 import JoinScreen from './JoinScreen';
 import Reader from './Reader';
@@ -19,8 +19,14 @@ const Classroom = ({ session, onLeave }: { session: Session; onLeave: () => void
   const intl = useIntl();
   // Holding the token is what makes this client a teacher. The server checks it again
   // on every move; this only decides what the interface offers.
-  const hostToken = recallHostToken(session.code);
+  // Memoised: this is a synchronous localStorage read, and the component re-renders
+  // on every presence update and every move.
+  const hostToken = useMemo(() => recallHostToken(session.code), [session.code]);
   const teaching = Boolean(hostToken);
+  // Following is on by default and can be turned off, because a student who scrolls
+  // up to re-read a line would otherwise be yanked forward on the teacher's next tap,
+  // mid-sentence, with no way to stop it.
+  const [follow, setFollow] = useState(true);
   const {
     connected, state, error, closed, joinRejected, endClass, goto,
   } = useRoom(session.code, session.displayName, hostToken);
@@ -56,6 +62,16 @@ const Classroom = ({ session, onLeave }: { session: Session; onLeave: () => void
               : intl.formatMessage(messages.connecting)}
           </p>
         </div>
+        <div className="classroom-page__controls">
+          <Form.Switch
+            checked={follow}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFollow(
+              e.target.checked,
+            )}
+          >
+            {intl.formatMessage(messages.follow)}
+          </Form.Switch>
+        </div>
         {teaching && (
           <div className="classroom-page__host">
             <span>{intl.formatMessage(messages.teaching)}</span>
@@ -77,7 +93,7 @@ const Classroom = ({ session, onLeave }: { session: Session; onLeave: () => void
             lines={text.lines}
             currentSegmentId={state?.currentSegmentId ?? null}
             onPick={teaching ? goto : undefined}
-            follow
+            follow={follow}
           />
         )}
         {!text.loading && text.lines.length === 0 && !text.error && (

@@ -53,10 +53,16 @@ export interface ClientToServerEvents {
   ) => void;
 }
 
-/** What this client listens for. */
+/**
+ * What this client listens for.
+ *
+ * There is no `room:state` event. The authoritative snapshot arrives in the **ack**
+ * to `room:join`, and a reconnect re-emits `room:join`, so the same path serves both.
+ * An earlier version of the contract specified such an event; neither side ever sent
+ * or handled it, and anyone building a second client from that document would have
+ * waited for something that never arrives.
+ */
 export interface ServerToClientEvents {
-  /** Authoritative snapshot, sent on join and on reconnect. Overrides local state. */
-  'room:state': (state: RoomState) => void;
   /** Incremental move. */
   'teach:goto': (payload: { segmentId: string }) => void;
   presence: (payload: { count: number }) => void;

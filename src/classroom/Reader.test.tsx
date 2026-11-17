@@ -11,12 +11,14 @@ import userEvent from '@testing-library/user-event';
 import Reader from './Reader';
 import type { Line } from './text';
 
+// The kinds the library actually returns — checked against
+// /v2/editions/{id}/segmentation/segments. See kinds.test.ts.
 const lines: Line[] = [
   {
-    id: 'a1', idx: 0, text: '༄༅༅། །རྒྱ་གར་སྐད་དུ།', kind: 'title',
+    id: 'a1', idx: 0, text: '༄༅༅། །རྒྱ་གར་སྐད་དུ།', kind: 'front_matter',
   },
   {
-    id: 'b2', idx: 1, text: 'བྱང་ཆུབ་སེམས་དཔའི་སྤྱོད་པ་ལ་འཇུག་པ།', kind: 'prose',
+    id: 'b2', idx: 1, text: 'བྱང་ཆུབ་སེམས་དཔའི་སྤྱོད་པ་ལ་འཇུག་པ།', kind: 'paragraph',
   },
   {
     id: 'c3', idx: 2, text: 'first line\nsecond line', kind: 'verse',
@@ -72,7 +74,8 @@ describe('Reader', () => {
   it('keeps the kind as a class, for spacing', () => {
     const { container } = show();
     expect(container.querySelector('.classroom-reader__line--verse')).toBeTruthy();
-    expect(container.querySelector('.classroom-reader__line--title')).toBeTruthy();
+    expect(container.querySelector('.classroom-reader__line--front_matter')).toBeTruthy();
+    expect(container.querySelector('.classroom-reader__line--paragraph')).toBeTruthy();
   });
 
   it('scrolls to the current line only when following', () => {
@@ -84,5 +87,21 @@ describe('Reader', () => {
     expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({
       behavior: 'smooth', block: 'center',
     });
+  });
+});
+
+describe('Reader — following', () => {
+  beforeAll(() => { Element.prototype.scrollIntoView = jest.fn(); });
+
+  it('does not move the view when following is off', () => {
+    (Element.prototype.scrollIntoView as jest.Mock).mockClear();
+    const { rerender } = show({ currentSegmentId: 'a1', follow: false });
+    rerender(
+      <IntlProvider locale="en">
+        <Reader lines={lines} currentSegmentId="c3" follow={false} />
+      </IntlProvider>,
+    );
+    // A student who scrolled back to re-read must stay where they are.
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
 });

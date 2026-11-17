@@ -124,3 +124,38 @@ describeLive('the teacher’s path', () => {
     );
   }, 120000);
 });
+
+describeLive('choosing a text', () => {
+  const chosen = () => document.querySelectorAll(
+    '.classroom-page__result.btn-primary',
+  ).length;
+
+  it('a second search clears the first choice', async () => {
+    show();
+    await userEvent.click(screen.getByRole('button', { name: /start a class/i }));
+
+    const field = screen.getByRole('textbox');
+    await userEvent.type(field, 'བྱང་ཆུབ');
+    await userEvent.click(screen.getByRole('button', { name: /find a text/i }));
+    await userEvent.click((await screen.findAllByRole('button', { name: /བྱང་ཆུབ/ }, { timeout: 20000 }))[0]);
+
+    // One result is highlighted as the chosen text.
+    expect(chosen()).toBe(1);
+
+    // Search again. Keeping the old choice would leave Start enabled with nothing
+    // highlighted, and create a room for a text no longer on screen.
+    await userEvent.clear(field);
+    await userEvent.type(field, 'དབུ་མ');
+    await userEvent.click(screen.getByRole('button', { name: /find a text/i }));
+    await screen.findAllByRole('button', { name: /དབུ་མ/ }, { timeout: 20000 });
+
+    expect(chosen()).toBe(0);
+
+    // And Start must be unavailable, since no text is selected any more. (It also
+    // needs a password; this asserts the selection is what is missing by supplying
+    // the password first.)
+    await userEvent.type(screen.getByLabelText(/host password/i), 'anything');
+    expect((screen.getByRole('button', { name: /^start$/i }) as HTMLButtonElement)
+      .disabled).toBe(true);
+  }, 120000);
+});
