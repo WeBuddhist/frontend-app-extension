@@ -71,7 +71,11 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   /** Incremental move. */
   'teach:goto': (payload: { segmentId: string }) => void;
-  presence: (payload: { count: number; teacherHere: boolean }) => void;
+  /**
+   * The teacher gets the head-count with it; a student gets `teacherHere` alone, and only when it
+   * changes (students are not shown a count).
+   */
+  presence: (payload: { count?: number; teacherHere: boolean }) => void;
   /** Today's session ended. The class stays, and so does everyone's place in it. */
   'session:ended': () => void;
   /** The login this connection was made with has run out. The page refreshes it and reconnects. */
