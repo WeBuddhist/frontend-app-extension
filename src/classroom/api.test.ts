@@ -35,9 +35,11 @@ describe('apiBase', () => {
     });
   });
 
+  // `local.openedx.io`, not `localhost`: the login cookies are scoped to that host, so a
+  // service anywhere else never sees them.
   it('falls back in development, where env.config is genuinely absent', () => {
     withEnv('development', () => {
-      expect(apiBase()).toBe('http://localhost:8010');
+      expect(apiBase()).toBe('http://local.openedx.io:8010');
     });
   });
 

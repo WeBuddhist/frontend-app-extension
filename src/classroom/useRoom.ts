@@ -1,9 +1,11 @@
 /**
- * The socket client. Ported from the classroom app's `useRoom.ts`.
+ * The socket client: a live connection to one class.
  *
- * Deliberately does not fetch the text yet — that is the next step. What this proves
- * on its own is the whole chain: a teacher's click reaching a student's screen through
- * the socket, the server and the database. Rendering is the easy part and comes after.
+ * Who you are, and whether you are the teacher, come from the Academy login and nothing
+ * this hook says about itself. The server accepts the socket only with a valid login,
+ * lets it into a class only if the account is a member, and lets it move the class only
+ * if the account is the teacher. `state.role` says which of those this account is, and
+ * is what decides what the interface offers; the server checks again on every message.
  */
 
 import {
@@ -11,114 +13,209 @@ import {
 } from 'react';
 import { io, type Socket } from 'socket.io-client';
 
-import { apiBase } from './api';
+import { apiBase, me } from './api';
 import type { ClientToServerEvents, RoomState, ServerToClientEvents } from './types';
 
 // Note the reversed order: what the server sends is what this client listens for.
 type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
+/** Why a live class stopped being one for this person. */
+export type Ended =
+  /** The teacher ended today's session (shown to the teacher only; students stay in the class). */
+  | 'session'
+  /** The class was archived. */
+  | 'archived'
+  /** The teacher removed this account. */
+  | 'removed'
+  /** This account left the class itself (from another tab, or this one). */
+  | 'left';
+
 export interface Room {
   connected: boolean;
   state: RoomState | null;
   error: string | null;
-  /** True once the teacher has ended the class. */
-  closed: boolean;
+  /** Set when the class stopped being live for this person, and why. Terminal. */
+  ended: Ended | null;
   /**
-   * Set when the server refused the join outright — a wrong code, or a class that had
-   * already ended. Terminal, unlike `error`: there is no room to be in, so the caller
-   * should offer a way out rather than the classroom.
+   * Set when the server refused the join outright: a wrong code, a class that was
+   * archived, or one this account is not in. Terminal, unlike `error`: there is no class to
+   * be in, so the caller should offer a way out rather than the classroom.
    */
   joinRejected: boolean;
-  /** Ask the server to move the room. Refused unless this client holds the host token. */
+  /** Ask the server to move the class. Refused unless this account is the teacher. */
   goto: (segmentId: string) => void;
-  /** End the class for everyone. Host only; the server checks again. */
-  endClass: () => void;
+  /** End today's session for everyone. The class stays. Teacher only; the server checks. */
+  endSession: () => void;
 }
 
-export function useRoom(code: string, displayName: string, hostToken?: string): Room {
+export function useRoom(code: string): Room {
   const [connected, setConnected] = useState(false);
   const [state, setState] = useState<RoomState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [closed, setClosed] = useState(false);
+  const [ended, setEnded] = useState<Ended | null>(null);
   const [joinRejected, setJoinRejected] = useState(false);
   const socketRef = useRef<ClientSocket | null>(null);
+  const roleRef = useRef<'teacher' | 'student' | null>(null);
+  // The code as it is now, read when joining. The effect below does not depend on it: a teacher
+  // changing the code changes it in place (the room is the same room, and a socket is keyed by
+  // the room's id), so reconnecting would only blank the screen and drop the Manage dialog.
+  const codeRef = useRef(code);
+  codeRef.current = code;
+  // The line the server last said the class is on: what to go back to if a move is refused.
+  const confirmedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // apiBase() throws when the service is unconfigured in production. Inside an
-    // effect that would escape React rather than reach anyone's catch, so it is
-    // turned into the same error state a failed connection produces.
-    let base: string;
-    try {
-      base = apiBase();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The classroom is not configured.');
-      return undefined;
-    }
+    let cancelled = false;
+    let socket: ClientSocket | null = null;
 
-    const socket: ClientSocket = io(base, {
-      // A real WebSocket first. Polling stays as a fallback for restrictive networks,
-      // where the teacher would see the highlight lag behind their own voice.
-      transports: ['websocket', 'polling'],
-    });
-    socketRef.current = socket;
-
-    // Fires on first connect and again after every reconnect, so re-joining here is
-    // all the resume logic this needs: the ack carries the room's authoritative state,
-    // including the line the class is on now.
-    const join = () => {
-      socket.emit('room:join', { code, displayName }, (result) => {
-        if (!result.ok) {
-          setError(result.error);
-          setJoinRejected(true);
-          return;
+    const open = async () => {
+      // apiBase() throws when the service is unconfigured in production, and `me()`
+      // fails when the login has lapsed. Inside an effect either would escape React
+      // rather than reach anyone's catch, so both become the error state a failed
+      // connection produces.
+      let base: string;
+      try {
+        base = apiBase();
+        // A socket cannot refresh the login cookie, but an ordinary request can, so one
+        // is made first. It is also the cheapest place to find out the login has gone.
+        await me();
+      } catch (cause) {
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : 'The classroom is not configured.');
         }
-        setError(null);
-        setJoinRejected(false);
-        setState(result.state);
+        return;
+      }
+      if (cancelled) { return; }
+
+      socket = io(base, {
+        // The login rides the handshake as cookies, which a browser sends to a different
+        // origin only when told to.
+        withCredentials: true,
+        // A real WebSocket first. Polling stays as a fallback for restrictive networks,
+        // where the teacher would see the highlight lag behind their own voice.
+        transports: ['websocket', 'polling'],
       });
+      socketRef.current = socket;
+
+      // Fires on first connect and again after every reconnect, so re-joining here is
+      // all the resume logic this needs: the ack carries the class's authoritative state,
+      // including the line it is on now.
+      const join = () => {
+        socket!.emit('room:join', { code: codeRef.current }, (result) => {
+          if (!result.ok) {
+            setError(result.error);
+            setJoinRejected(true);
+            return;
+          }
+          setError(null);
+          setJoinRejected(false);
+          roleRef.current = result.state.role;
+          confirmedRef.current = result.state.currentSegmentId;
+          setState(result.state);
+        });
+      };
+
+      socket.on('connect', () => {
+        setConnected(true);
+        join();
+      });
+      socket.on('disconnect', () => setConnected(false));
+      socket.on('connect_error', (cause) => {
+        // The server's reason when it refused (a lapsed login), else the transport's.
+        setError(cause?.message && cause.message !== 'xhr poll error'
+          ? cause.message
+          : 'Cannot reach the classroom server.');
+      });
+
+      socket.on('teach:goto', ({ segmentId }) => {
+        confirmedRef.current = segmentId;
+        setState((previous) => (
+          previous ? { ...previous, currentSegmentId: segmentId } : previous
+        ));
+      });
+      socket.on('presence', ({ count, teacherHere }) => {
+        setState((previous) => (
+          previous ? { ...previous, participantCount: count, teacherHere } : previous
+        ));
+      });
+      // The session ending does not send anyone away: the class stays open to read and to make
+      // notes in, so this only marks it. (A teacher is the exception, and is shown the notice:
+      // see the return below.)
+      socket.on('session:ended', () => {
+        setState((previous) => (
+          previous ? { ...previous, sessionEnded: true } : previous
+        ));
+        // The teacher who ended it is done: leave the class for good, so a reconnect cannot
+        // re-join and, by being the teacher, start the session again. Coming back is opening
+        // the class afresh.
+        if (roleRef.current === 'teacher') { socket?.disconnect(); }
+      });
+      // The login ran out. Asking the service who we are refreshes the login cookie, after
+      // which the connection can be made again.
+      socket.on('auth:expired', () => {
+        me().then(() => socket?.connect()).catch((cause) => {
+          if (!cancelled) {
+            setError(cause instanceof Error ? cause.message : 'Your login has expired.');
+          }
+        });
+      });
+      socket.on('session:started', () => setState((previous) => (
+        previous ? { ...previous, sessionEnded: false } : previous
+      )));
+      socket.on('room:closed', () => setEnded('archived'));
+      socket.on('member:removed', () => setEnded('removed'));
+      socket.on('member:left', () => setEnded('left'));
     };
 
-    socket.on('connect', () => {
-      setConnected(true);
-      join();
-    });
-    socket.on('disconnect', () => setConnected(false));
-    socket.on('connect_error', () => setError('Cannot reach the classroom server.'));
+    open();
 
-    socket.on('teach:goto', ({ segmentId }) => {
-      setState((previous) => (
-        previous ? { ...previous, currentSegmentId: segmentId } : previous
-      ));
-    });
-    socket.on('presence', ({ count }) => {
-      setState((previous) => (
-        previous ? { ...previous, participantCount: count } : previous
-      ));
-    });
-    socket.on('room:closed', () => setClosed(true));
+    // Closing the tab says goodbye at once, so a teacher who leaves stops showing as live to
+    // everyone straight away. A connection that just vanishes (a closed laptop, no network) is
+    // only noticed when it misses the server's keep-alive, which is left at the defaults: short
+    // timers would drop every phone that is locked for a few seconds.
+    const sayGoodbye = (event: PageTransitionEvent) => {
+      if (!event.persisted) { socket?.disconnect(); }
+    };
+    window.addEventListener('pagehide', sayGoodbye);
 
     return () => {
-      socket.removeAllListeners();
-      socket.disconnect();
+      cancelled = true;
+      window.removeEventListener('pagehide', sayGoodbye);
+      socket?.removeAllListeners();
+      socket?.disconnect();
       socketRef.current = null;
     };
-  }, [code, displayName]);
+  }, []);
 
   const goto = useCallback((segmentId: string) => {
-    if (!hostToken) { return; }
-    socketRef.current?.emit('teach:goto', { segmentId, hostToken }, (result) => {
-      if (!result.ok) { setError(result.error); }
+    // The line is marked as soon as it is pressed, not when the server's answer comes back, so
+    // the teacher sees the class move the moment they press. The server's broadcast then
+    // confirms it; if it refuses, the error below says so and the next broadcast corrects it.
+    setState((previous) => (
+      previous ? { ...previous, currentSegmentId: segmentId } : previous
+    ));
+    socketRef.current?.emit('teach:goto', { segmentId }, (result) => {
+      if (result.ok) { return; }
+      setError(result.error);
+      // Refused, so nothing was broadcast and nothing will correct the line marked above: put
+      // back the one the class is really on.
+      setState((previous) => (
+        previous ? { ...previous, currentSegmentId: confirmedRef.current } : previous
+      ));
     });
-  }, [hostToken]);
+  }, []);
 
-  const endClass = useCallback(() => {
-    if (!hostToken) { return; }
-    socketRef.current?.emit('room:close', { hostToken }, (result) => {
+  const endSession = useCallback(() => {
+    socketRef.current?.emit('session:end', {}, (result) => {
       if (!result.ok) { setError(result.error); }
     });
-  }, [hostToken]);
+  }, []);
+
+  // A teacher who ends the session is done and goes back to their list, so for them it is the
+  // end of the class screen. A student is not: they stay (see `state.sessionEnded`).
+  const teacherEnded: Ended | null = state?.role === 'teacher' && state.sessionEnded ? 'session' : null;
 
   return {
-    connected, state, error, closed, joinRejected, goto, endClass,
+    connected, state, error, ended: ended ?? teacherEnded, joinRejected, goto, endSession,
   };
 }

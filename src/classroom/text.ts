@@ -11,17 +11,19 @@
  * not guesses and must not be simplified away — both are commented where they appear.
  */
 
-import { apiBase } from './api';
+import { apiBase, me } from './api';
 
 /** The library pages its segment listing; 500 is what the reader uses. */
 const SPAN_PAGE_SIZE = 500;
 
 interface SpanLine { start: number; end: number }
 
-interface SegmentSpan {
+export interface SegmentSpan {
   id: string;
   lines?: SpanLine[];
   type?: string;
+  /** The library's label for the segment, such as `1-1` or `I-2`. */
+  reference?: string | null;
 }
 
 export interface Line {
@@ -31,21 +33,46 @@ export interface Line {
   idx: number;
   /** What this line says. */
   text: string;
+  /** The translation lined up with it, when the room has one. Display only. */
+  translation?: string;
   /** `verse`, `prose`, `title`… Used for spacing, ignored by sync. */
   kind?: string;
+  /** The label shown in the margin of the segmented layout. Display only. */
+  reference?: string;
 }
 
-const library = async <T>(path: string, params?: Record<string, string>): Promise<T> => {
+/**
+ * One GET to the library through the service, with the Academy login.
+ *
+ * A plain `fetch` rather than the authenticated client, so it renews nothing by itself: when the
+ * login cookie has run out (they last about an hour) the service answers 401, and a call to `me()`
+ * (an ordinary request, which does renew it) followed by one retry puts it right. Without that a
+ * reload late in a long class would fail to load the text at all.
+ */
+export const library = async <T>(path: string, params?: Record<string, string>): Promise<T> => {
   const query = params ? `?${new URLSearchParams(params)}` : '';
-  const response = await fetch(`${apiBase()}/library${path}${query}`);
+  const attempt = () => fetch(`${apiBase()}/library${path}${query}`, {
+    credentials: 'include',
+    headers: { 'USE-JWT-COOKIE': 'true' },
+  });
+  let response = await attempt();
+  if (response.status === 401) {
+    await me().catch(() => undefined);
+    response = await attempt();
+  }
   if (!response.ok) {
     throw new Error(`The library could not be reached (${response.status}).`);
   }
   return response.json() as Promise<T>;
 };
 
-/** Every segment span of an edition, in order. Paged, because texts run long. */
-const allSpans = async (editionId: string): Promise<SegmentSpan[]> => {
+/** Segment lists already asked for, by edition. See `allSpans`. */
+const spansCache = new Map<string, Promise<SegmentSpan[]>>();
+
+/** Forget what was cached. For tests, which reuse one edition id with different answers. */
+export const clearTextCache = (): void => spansCache.clear();
+
+const fetchAllSpans = async (editionId: string): Promise<SegmentSpan[]> => {
   const spans: SegmentSpan[] = [];
   let offset = 0;
   for (;;) {
@@ -59,6 +86,22 @@ const allSpans = async (editionId: string): Promise<SegmentSpan[]> => {
     if (!page.has_more || items.length === 0) { return spans; }
     offset += items.length;
   }
+};
+
+/**
+ * Every segment span of an edition, in order. Paged, because texts run long.
+ *
+ * Asked for once per edition and shared: the text, the table of contents and the translation
+ * each need the same list, and a class used to download it four or more times on opening. A
+ * failed request is dropped from the cache so the next try asks again.
+ */
+export const allSpans = (editionId: string): Promise<SegmentSpan[]> => {
+  const cached = spansCache.get(editionId);
+  if (cached) { return cached; }
+  const pending = fetchAllSpans(editionId);
+  spansCache.set(editionId, pending);
+  pending.catch(() => { spansCache.delete(editionId); });
+  return pending;
 };
 
 /**
@@ -82,6 +125,7 @@ const buildLines = (spans: SegmentSpan[], content: string): Line[] => {
     id: span.id,
     idx,
     kind: span.type,
+    reference: span.reference || undefined,
     text: (span.lines ?? [])
       .map((line) => codePoints.slice(line.start, line.end).join(''))
       .join('\n'),
@@ -96,4 +140,74 @@ export const loadText = async (editionId: string): Promise<Line[]> => {
     library<string>(`/v2/editions/${editionId}/content`),
   ]);
   return buildLines(spans, content);
+};
+
+/** One pair from the library's alignment list: which line of one edition matches which. */
+interface AlignmentItem {
+  source_segment: { id: string };
+  target_segment: { id: string };
+}
+
+/** Every alignment pair between two editions, in the direction asked. Paged. */
+const alignmentPairs = async (
+  fromEditionId: string,
+  toEditionId: string,
+): Promise<AlignmentItem[]> => {
+  const pairs: AlignmentItem[] = [];
+  let offset = 0;
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop
+    const page = await library<{ items?: AlignmentItem[]; has_more?: boolean }>(
+      `/v2/editions/${fromEditionId}/alignments/${toEditionId}`,
+      { limit: String(SPAN_PAGE_SIZE), offset: String(offset) },
+    );
+    const items = page.items ?? [];
+    pairs.push(...items);
+    if (!page.has_more || items.length === 0) { return pairs; }
+    offset += items.length;
+  }
+};
+
+/**
+ * What each line of the source says in the translation, keyed by the source's segment id.
+ *
+ * The library stores an alignment in one direction only, and not always the one we ask
+ * for: two translations of one root are each aligned to the root, and the pair may be
+ * recorded translation-to-source. So the source-to-translation list is tried first and,
+ * when it is empty, the reverse is read with the two sides swapped. This is the same
+ * order WeBuddhist's reader uses (`src/services/library/alignments.ts`, commit 80ed57cd).
+ *
+ * One source line can match several translation lines, and the other way round, so the
+ * result joins what it finds. Lines with no match are simply absent from the map.
+ *
+ * Deliberately not carried over: the walk through a shared ancestor text for editions
+ * that are aligned to nothing in common directly. The server only pins a translation
+ * that has a direct alignment, so that case cannot arise here.
+ */
+export const loadTranslations = async (
+  sourceEditionId: string,
+  translationEditionId: string,
+): Promise<Map<string, string>> => {
+  const [forward, translation] = await Promise.all([
+    alignmentPairs(sourceEditionId, translationEditionId),
+    loadText(translationEditionId),
+  ]);
+
+  let matches: Array<[string, string]> = forward.map(
+    (pair) => [pair.source_segment.id, pair.target_segment.id],
+  );
+  if (matches.length === 0) {
+    const reverse = await alignmentPairs(translationEditionId, sourceEditionId);
+    matches = reverse.map((pair) => [pair.target_segment.id, pair.source_segment.id]);
+  }
+
+  const said = new Map(translation.map((line) => [line.id, line.text]));
+  const bySource = new Map<string, string[]>();
+  matches.forEach(([sourceId, translationId]) => {
+    const text = said.get(translationId);
+    if (!text) { return; }
+    const found = bySource.get(sourceId);
+    if (found) { found.push(text); } else { bySource.set(sourceId, [text]); }
+  });
+  return new Map([...bySource].map(([id, texts]) => [id, texts.join('\n')]));
 };
