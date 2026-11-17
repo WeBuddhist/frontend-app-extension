@@ -281,6 +281,22 @@ describe('the teacher', () => {
     expect(screen.queryByRole('button', { name: 'Sync with teacher' })).toBeNull();
   });
 
+  it('brings a pressed line into focus as well as moving the class there', async () => {
+    Element.prototype.scrollIntoView = jest.fn();
+    mockedUseText.mockReturnValue({
+      lines: ['a', 'b'].map((id, idx) => ({
+        id, idx, text: `line ${id}`, kind: 'paragraph', reference: id,
+      })) as never,
+      loading: false,
+      error: null,
+    });
+    open();
+    (Element.prototype.scrollIntoView as jest.Mock).mockClear();
+    await userEvent.click(screen.getByText('line b'));
+    expect(goto).toHaveBeenCalledWith('b');
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
+  });
+
   describe('the floating back and on buttons', () => {
     beforeEach(() => { Element.prototype.scrollIntoView = jest.fn(); });
 

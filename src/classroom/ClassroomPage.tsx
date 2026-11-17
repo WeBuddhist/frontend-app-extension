@@ -392,7 +392,9 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
           <Reader
             lines={text.lines}
             currentSegmentId={state?.currentSegmentId ?? null}
-            onPick={teaching ? goto : undefined}
+            // Pressing a line moves the class there and brings it to the middle of the screen, as the
+            // Next and Previous buttons do, so the line the class is on is always the one in focus.
+            onPick={teaching ? (segmentId) => jumpTo(segmentId, true) : undefined}
             follow={follow && !teaching && !sessionOver}
             paused={notesBusy}
             view={view}
