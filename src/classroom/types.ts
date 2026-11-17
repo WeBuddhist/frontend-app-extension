@@ -98,6 +98,9 @@ export interface ClassSummary {
   role: Role;
   memberCount: number;
   lastSeenAt: string | null;
+  /** The days the class is held, as `YYYY-MM-DD`, when the teacher has said. */
+  startsOn?: string | null;
+  endsOn?: string | null;
   /** The student left this class; it stays listed, and one press rejoins it (no code). */
   left?: boolean;
 }

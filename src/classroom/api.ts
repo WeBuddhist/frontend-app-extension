@@ -52,7 +52,7 @@ export const apiBase = (): string => {
   );
 };
 
-type Method = 'get' | 'post' | 'patch' | 'delete';
+type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
 /** What axios throws, as far as this file reads it. */
 interface HttpError {
@@ -92,10 +92,37 @@ export const searchTexts = (title: string) => call<TextResult[]>(
   `/api/texts?${new URLSearchParams({ title, limit: '20' })}`,
 );
 
-export const createRoom = (hostPassword: string, textId: string, name?: string) => call<CreatedRoom>(
+/** The first and last day a class is held, as `YYYY-MM-DD`. Either may be left out or null. */
+export interface ClassDates { startsOn?: string | null; endsOn?: string | null }
+
+export const createRoom = (
+  hostPassword: string,
+  textId: string,
+  name?: string,
+  dates: ClassDates = {},
+) => call<CreatedRoom>(
   'post',
   '/api/rooms',
-  { hostPassword, textId, ...(name?.trim() ? { name: name.trim() } : {}) },
+  {
+    hostPassword,
+    textId,
+    ...(name?.trim() ? { name: name.trim() } : {}),
+    ...(dates.startsOn ? { startsOn: dates.startsOn } : {}),
+    ...(dates.endsOn ? { endsOn: dates.endsOn } : {}),
+  },
+);
+
+/** When a class is held, as the service has it. */
+export const getClassDates = (code: string) => call<ClassDates>(
+  'get',
+  `/api/rooms/${encodeURIComponent(code)}`,
+);
+
+/** Say when the class is held. A null (or missing) date clears it. The teacher's. */
+export const setClassDates = (code: string, dates: ClassDates) => call<void>(
+  'put',
+  `/api/rooms/${encodeURIComponent(code)}/dates`,
+  { startsOn: dates.startsOn || null, endsOn: dates.endsOn || null },
 );
 
 /** The classes this account is in. What the code screen shows, so a code is entered once. */
