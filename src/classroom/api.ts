@@ -14,14 +14,31 @@ import { getConfig } from '@edx/frontend-platform';
 
 import type { CreatedRoom, TextResult } from './types';
 
+/** Where the classroom service answers in development, with no Caddy and no config. */
+const DEV_FALLBACK = 'http://localhost:8010';
+
 /**
  * Set by the Tutor plugin's MFE runtime config. In production it is a path on this
  * MFE's own origin (Caddy proxies it); in development there is no Caddy, so it is the
  * service's published port on a different origin — which is why the service's
  * WEB_ORIGIN includes this page's origin in dev.
+ *
+ * **Throws in production when it is unset, rather than falling back.** The fallback
+ * is real and load-bearing in development: webpack reports `env.config (ignored)`
+ * under `tutor dev`, so this value is genuinely undefined there. In production the
+ * same silence would point every student's browser at their own machine, where every
+ * call fails for a reason nothing on screen explains. A thrown error reaches the
+ * caller's catch and is shown.
  */
-export const apiBase = (): string => (getConfig() as { CLASSROOM_API_URL?: string })
-  .CLASSROOM_API_URL ?? 'http://localhost:8010';
+export const apiBase = (): string => {
+  const configured = (getConfig() as { CLASSROOM_API_URL?: string }).CLASSROOM_API_URL;
+  if (configured) { return configured; }
+  if (process.env.NODE_ENV === 'development') { return DEV_FALLBACK; }
+  throw new Error(
+    'The classroom is not configured: CLASSROOM_API_URL is missing. '
+    + "This comes from the Tutor plugin's MFE runtime config.",
+  );
+};
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase()}${path}`, {

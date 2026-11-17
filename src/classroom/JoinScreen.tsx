@@ -54,6 +54,10 @@ const JoinScreen = ({ initialCode, onEnter }: Props) => {
       // Live against the library. There is no local catalogue to go stale, and
       // nothing is stored until a room is actually created.
       setResults(await searchTexts(query.trim()));
+      // Clear the choice with the results. Keeping it leaves Start enabled while
+      // nothing on screen is highlighted, and the room is created for a text the
+      // teacher can no longer see.
+      setTextId('');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not reach the library.');
     } finally {
