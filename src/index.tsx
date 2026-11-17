@@ -18,6 +18,7 @@ import { FooterSlot } from '@edx/frontend-component-footer';
 
 import ExtensionHeader from './header/ExtensionHeader';
 import NotFoundPage from './not-found-page/NotFoundPage';
+import ClassroomPage from './classroom/ClassroomPage';
 import StartCampusPage from './start-campus/StartCampusPage';
 import WishlistPage from './wishlist/WishlistPage';
 
@@ -45,6 +46,10 @@ subscribe(APP_READY, () => {
                 <Route
                   path="/start-campus"
                   element={<StartCampusPage />}
+                />
+                <Route
+                  path="/classroom"
+                  element={<AuthenticatedPageRoute><ClassroomPage /></AuthenticatedPageRoute>}
                 />
                 <Route path="*" element={<NotFoundPage />} />
               </Routes>
