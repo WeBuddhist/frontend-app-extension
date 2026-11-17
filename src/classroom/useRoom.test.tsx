@@ -9,7 +9,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import * as api from './api';
-import { useRoom } from './useRoom';
+import { socketAddress, useRoom } from './useRoom';
 import type { RoomState } from './types';
 
 jest.mock('./api');
@@ -82,6 +82,37 @@ const connected = async (code = 'ABC234') => {
   act(() => socket.hear('connect'));
   return hook;
 };
+
+describe('where the socket is opened', () => {
+  it('splits a path off the address: it is where the socket is served, not a namespace', () => {
+    expect(socketAddress('https://apps.example.com/classroom-api')).toEqual({
+      origin: 'https://apps.example.com',
+      path: '/classroom-api/socket.io',
+    });
+    expect(socketAddress('https://apps.example.com/classroom-api/')).toEqual({
+      origin: 'https://apps.example.com',
+      path: '/classroom-api/socket.io',
+    });
+  });
+
+  it('uses the ordinary path for an address with none, as in development', () => {
+    expect(socketAddress('http://local.openedx.io:8010')).toEqual({
+      origin: 'http://local.openedx.io:8010',
+      path: '/socket.io',
+    });
+    expect(socketAddress('http://local.openedx.io:8010/')).toEqual({
+      origin: 'http://local.openedx.io:8010',
+      path: '/socket.io',
+    });
+  });
+
+  it('hands the origin and the path to the socket, never the path as part of the address', async () => {
+    mocked.apiBase.mockReturnValue('https://apps.example.com/classroom-api');
+    await connected();
+    expect(ioCalls[0].url).toBe('https://apps.example.com');
+    expect(ioCalls[0].options.path).toBe('/classroom-api/socket.io');
+  });
+});
 
 describe('opening the connection', () => {
   it('makes an ordinary request first, so the login cookie is fresh before a socket needs it', async () => {

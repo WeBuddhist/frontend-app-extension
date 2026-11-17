@@ -48,6 +48,22 @@ export interface Room {
   endSession: () => void;
 }
 
+/**
+ * Where to open the socket, given the service's address.
+ *
+ * `io('https://host/classroom-api')` does **not** mean "the service under /classroom-api": the
+ * client reads a path in the address as a Socket.IO *namespace* and still knocks on
+ * `https://host/socket.io/` at the root, where in production nothing answers it (the MFE's catch-all
+ * does, with a web page, and the connection fails). So the address is split: the origin goes to
+ * `io`, and the path becomes the engine `path` option, which is where the socket is really served.
+ *
+ * In development the address has no path, and this gives the default `/socket.io`.
+ */
+export const socketAddress = (base: string): { origin: string; path: string } => {
+  const url = new URL(base);
+  return { origin: url.origin, path: `${url.pathname.replace(/\/+$/, '')}/socket.io` };
+};
+
 export function useRoom(code: string): Room {
   const [connected, setConnected] = useState(false);
   const [state, setState] = useState<RoomState | null>(null);
@@ -87,7 +103,11 @@ export function useRoom(code: string): Room {
       }
       if (cancelled) { return; }
 
-      socket = io(base, {
+      const { origin, path } = socketAddress(base);
+      socket = io(origin, {
+        // Where the service listens for sockets, below whatever path it is reached by. In
+        // production that is `/classroom-api/socket.io`, which Caddy sends to the service.
+        path,
         // The login rides the handshake as cookies, which a browser sends to a different
         // origin only when told to.
         withCredentials: true,
