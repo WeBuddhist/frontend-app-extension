@@ -7,6 +7,7 @@
  *   CLASSROOM_API_URL=http://localhost:8010 npm test -- text.live
  */
 
+import { tokenOf } from './liveSupport';
 import { loadText } from './text';
 
 const API = process.env.CLASSROOM_API_URL;
@@ -27,6 +28,7 @@ beforeAll(() => {
   (global as any).fetch = (url: string) => new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open('GET', url, true);
+    request.setRequestHeader('authorization', `JWT ${tokenOf('teacher')}`);
     request.onload = () => resolve({
       ok: request.status >= 200 && request.status < 300,
       status: request.status,
@@ -41,6 +43,7 @@ beforeAll(() => {
 const get = (url: string): Promise<any> => new Promise((resolve, reject) => {
   const request = new XMLHttpRequest();
   request.open('GET', url, true);
+  request.setRequestHeader('authorization', `JWT ${tokenOf('teacher')}`);
   request.onload = () => resolve(JSON.parse(request.responseText));
   request.onerror = () => reject(new Error(`GET ${url} failed`));
   request.send();

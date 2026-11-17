@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react';
 
-import { loadText, type Line } from './text';
+import { loadText, loadTranslations, type Line } from './text';
 
 export interface Text {
   lines: Line[];
@@ -15,7 +15,10 @@ export interface Text {
   error: string | null;
 }
 
-export function useText(editionId: string | undefined): Text {
+export function useText(
+  editionId: string | undefined,
+  translationEditionId?: string | null,
+): Text {
   const [lines, setLines] = useState<Line[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,8 +28,19 @@ export function useText(editionId: string | undefined): Text {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    loadText(editionId)
-      .then((loaded) => { if (!cancelled) { setLines(loaded); } })
+    // A translation that fails to load must not take the class down with it: the source
+    // is what the teacher is teaching from, and the English is an aid beneath it.
+    const translations = translationEditionId
+      ? loadTranslations(editionId, translationEditionId).catch(() => new Map<string, string>())
+      : Promise.resolve(new Map<string, string>());
+    Promise.all([loadText(editionId), translations])
+      .then(([loaded, translated]) => {
+        if (cancelled) { return; }
+        setLines(loaded.map((line) => {
+          const translation = translated.get(line.id);
+          return translation ? { ...line, translation } : line;
+        }));
+      })
       .catch((cause: unknown) => {
         if (!cancelled) {
           setError(cause instanceof Error ? cause.message : 'Could not load the text.');
@@ -34,7 +48,7 @@ export function useText(editionId: string | undefined): Text {
       })
       .finally(() => { if (!cancelled) { setLoading(false); } });
     return () => { cancelled = true; };
-  }, [editionId]);
+  }, [editionId, translationEditionId]);
 
   return { lines, loading, error };
 }
