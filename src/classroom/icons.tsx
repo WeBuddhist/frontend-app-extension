@@ -48,6 +48,31 @@ export const NotesIcon = make([
   'M10 9H8', 'M16 13H8', 'M16 17H8',
 ]);
 
+/** A pen over a square: add a note. */
+export const AddNoteIcon = make([
+  'M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7',
+  'M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z',
+]);
+
+/** An open book: look the words up in the dictionary. */
+export const DictionaryIcon = make([
+  'M12 7v14',
+  'M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z',
+]);
+
+/** A padlock: private to you. */
+export const LockIcon = make([
+  'M5 11h14v10H5z',
+  'M8 11V7a4 4 0 0 1 8 0v4',
+]);
+
+/** Three sliders: choose which ones. */
+export const SlidersIcon = make([
+  'M4 6h9', 'M17 6h3', 'M15 4v4',
+  'M4 12h3', 'M11 12h9', 'M9 10v4',
+  'M4 18h11', 'M19 18h1', 'M17 16v4',
+]);
+
 /** A downward chevron, for a button that opens a menu. */
 export const ChevronIcon = make(['M6 9l6 6 6-6']);
 
