@@ -241,6 +241,12 @@ export type SelectionResult =
     anchor: Anchor;
     /** Where to put the popup: the selection's box, in the page's own coordinates. */
     rect: DOMRect;
+    /** The box of each line of the selection, to draw it again once the browser's own
+     * selection has gone (it goes when the note box is clicked into). */
+    rects: DOMRect[];
+    /** The selected words themselves, to find their boxes again when the text moves (a side
+     * panel opening, a different text size). A copy: the browser's own selection goes. */
+    range: Range;
   }
   | { ok: false };
 
@@ -290,5 +296,7 @@ export function selectionToAnchor(selection: Selection | null, root: Element | n
     layer,
     anchor: buildAnchor(text, snapped.start, snapped.end),
     rect: range.getBoundingClientRect(),
+    rects: typeof range.getClientRects === 'function' ? Array.from(range.getClientRects()) : [],
+    range: range.cloneRange(),
   };
 }

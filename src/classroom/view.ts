@@ -88,6 +88,28 @@ export const rememberSectionTitles = (shown: boolean): void => {
 };
 
 /**
+ * Whether a student's own highlights are drawn in the text. Personal and never synced. On by
+ * default; hidden, the text reads clean, and the notes are all still there in "My notes".
+ */
+const HIGHLIGHTS_KEY = 'classroom.highlights';
+
+export const recallHighlights = (): boolean => {
+  try {
+    return window.localStorage.getItem(HIGHLIGHTS_KEY) !== 'hidden';
+  } catch {
+    return true;
+  }
+};
+
+export const rememberHighlights = (shown: boolean): void => {
+  try {
+    window.localStorage.setItem(HIGHLIGHTS_KEY, shown ? 'shown' : 'hidden');
+  } catch {
+    // Not remembering is fine; the choice still applies to this visit.
+  }
+};
+
+/**
  * How large the text is set. Personal and never synced: a reader across the room and a
  * reader on a phone want different sizes. Steps rather than a free slider, so there are
  * four sizes to talk about, and the middle one is what the page was designed at.
