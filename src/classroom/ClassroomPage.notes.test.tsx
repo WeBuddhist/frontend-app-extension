@@ -7,12 +7,13 @@
 
 import { IntlProvider } from '@edx/frontend-platform/i18n';
 import {
-  act, fireEvent, render, screen, waitFor,
+  act, fireEvent, render, screen, waitFor, within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import ClassroomPage from './ClassroomPage';
 import * as api from './api';
+import { clearLookupCache } from './dictionary';
 import { rememberSession } from './session';
 import { useRoom, type Room } from './useRoom';
 import { useText } from './useText';
@@ -247,15 +248,15 @@ describe('adding a note', () => {
     await selectWords('s1', 'source', 4, 7);
     await userEvent.click(await screen.findByRole('button', { name: /add note/i }));
 
-    expect(await screen.findByRole('heading', { name: /add a note/i })).toBeTruthy();
+    expect(await screen.findByRole('dialog', { name: /add a note/i })).toBeTruthy();
     expect(screen.getAllByText('two').length).toBeGreaterThan(0);
     await userEvent.click(screen.getByRole('radio', { name: 'pink' }));
     await userEvent.type(screen.getByRole('textbox'), '  remember this  ');
-    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^save note$/i }));
 
     await waitFor(() => expect(mockedApi.createNote).toHaveBeenCalled());
     expect(mockedApi.createNote.mock.calls[0][1]).toMatchObject({ color: 'pink', body: 'remember this', quote: 'two' });
-    await waitFor(() => expect(screen.queryByRole('heading', { name: /add a note/i })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /add a note/i })).toBeNull());
   });
 
   it('shows a refusal in the dialog, and keeps what was typed', async () => {
@@ -264,7 +265,7 @@ describe('adding a note', () => {
     await selectWords('s1', 'source', 4, 7);
     await userEvent.click(await screen.findByRole('button', { name: /add note/i }));
     await userEvent.type(await screen.findByRole('textbox'), 'precious');
-    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^save note$/i }));
     expect(await screen.findByText(/login has expired/i)).toBeTruthy();
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('precious');
   });
@@ -284,7 +285,7 @@ describe('looking at and changing a note', () => {
 
   it('opens the note when its highlight is pressed', async () => {
     await openIt();
-    expect(await screen.findByRole('heading', { name: /your note/i })).toBeTruthy();
+    expect(await screen.findByRole('dialog', { name: /edit note/i })).toBeTruthy();
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('my thought');
   });
 
@@ -295,7 +296,7 @@ describe('looking at and changing a note', () => {
     const box = screen.getByRole('textbox');
     await userEvent.clear(box);
     await userEvent.type(box, 'a better thought');
-    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^save note$/i }));
     await waitFor(() => expect(mockedApi.updateNote).toHaveBeenCalledWith('ABC234', 'n1', { color: 'blue', body: 'a better thought' }));
   });
 
@@ -303,7 +304,7 @@ describe('looking at and changing a note', () => {
     mockedApi.updateNote.mockImplementation(async () => note({ body: null }));
     await openIt();
     await userEvent.clear(await screen.findByRole('textbox'));
-    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^save note$/i }));
     await waitFor(() => expect(mockedApi.updateNote).toHaveBeenCalledWith('ABC234', 'n1', { color: 'green', body: null }));
   });
 
@@ -324,11 +325,75 @@ describe('looking at and changing a note', () => {
     });
     await selectWords('s2', 'source', 0, 4);
     fireEvent.click(mark);
-    expect(screen.queryByRole('heading', { name: /your note/i })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: /edit note/i })).toBeNull();
   });
 });
 
 describe('my notes', () => {
+  const second = () => note({
+    id: 'n2', segmentId: 's2', quote: 'five', prefix: 'four ', suffix: ' six', startOffset: 5, endOffset: 9, color: 'yellow', body: 'other',
+  });
+
+  it('drops a colour filter once no note has that colour, so every note shows again', async () => {
+    mockedApi.listNotes.mockResolvedValue([note(), second()]);
+    mockedApi.deleteNote.mockResolvedValue(undefined);
+    open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /only green/i }));
+    expect(screen.queryByText('other')).toBeNull();
+    // The only green note goes.
+    await userEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    await userEvent.click(within(await screen.findByRole('dialog', { name: 'Edit note' })).getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('other')).toBeTruthy();
+    expect(screen.queryByText(/no notes in this colou?r/i)).toBeNull();
+  });
+
+  it('keeps what has been written when another highlight is clicked', async () => {
+    mockedApi.listNotes.mockResolvedValue([note(), second()]);
+    open();
+    await waitFor(() => expect(document.querySelector('[data-note-id="n1"]')).not.toBeNull());
+    await userEvent.click(document.querySelector('[data-note-id="n1"]') as HTMLElement);
+    const box = await screen.findByRole('textbox', { name: /note/i });
+    await userEvent.clear(box);
+    await userEvent.type(box, 'half a thought');
+    await userEvent.click(document.querySelector('[data-note-id="n2"]') as HTMLElement);
+    expect((screen.getByRole('textbox', { name: /note/i }) as HTMLTextAreaElement).value).toBe('half a thought');
+  });
+
+  it('opens another note when nothing has been written in the open one', async () => {
+    mockedApi.listNotes.mockResolvedValue([note(), second()]);
+    open();
+    await waitFor(() => expect(document.querySelector('[data-note-id="n1"]')).not.toBeNull());
+    await userEvent.click(document.querySelector('[data-note-id="n1"]') as HTMLElement);
+    await screen.findByRole('textbox', { name: /note/i });
+    await userEvent.click(document.querySelector('[data-note-id="n2"]') as HTMLElement);
+    await waitFor(() => expect((screen.getByRole('textbox', { name: /note/i }) as HTMLTextAreaElement).value).toBe('other'));
+  });
+
+  it('puts the list away when a note is edited on a screen where it lies over the text', async () => {
+    const width = window.innerWidth;
+    mockedApi.listNotes.mockResolvedValue([note()]);
+    open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 });
+    try {
+      await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+      await screen.findByRole('dialog', { name: 'Edit note' });
+      expect(screen.queryByRole('dialog', { name: 'My notes' })).toBeNull();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    }
+  });
+
+  it('keeps the list open beside the text on a wide screen when a note is edited', async () => {
+    mockedApi.listNotes.mockResolvedValue([note()]);
+    open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    await screen.findByRole('dialog', { name: 'Edit note' });
+    expect(screen.getByRole('dialog', { name: 'My notes' })).toBeTruthy();
+  });
+
   it('lists every note in reading order, with its words', async () => {
     mockedApi.listNotes.mockResolvedValue([
       note({
@@ -348,6 +413,31 @@ describe('my notes', () => {
     await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
     expect(await screen.findByText(/no notes yet/i)).toBeTruthy();
     expect(screen.getAllByText(/only you can see your notes/i).length).toBeGreaterThan(0);
+  });
+
+  it('narrows the list to one colour, when more than one is in use', async () => {
+    mockedApi.listNotes.mockResolvedValue([
+      note({ id: 'a', body: 'green one', color: 'green' }),
+      note({
+        id: 'b', segmentId: 's2', quote: 'five', prefix: 'four ', suffix: ' six', startOffset: 5, endOffset: 9, body: 'pink one', color: 'pink',
+      }),
+    ]);
+    open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    expect(await screen.findByText('2 notes')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Only pink' }));
+    expect(screen.queryByText('green one')).toBeNull();
+    expect(screen.getByText('pink one')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'All' }));
+    expect(screen.getByText('green one')).toBeTruthy();
+  });
+
+  it('opens a note to change it from the pen on its card', async () => {
+    mockedApi.listNotes.mockResolvedValue([note()]);
+    open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    expect(await screen.findByRole('dialog', { name: /edit note/i })).toBeTruthy();
   });
 
   it('goes to the line a note is on', async () => {
@@ -381,5 +471,380 @@ describe('following the teacher', () => {
     mockedUseRoom.mockReturnValue(room({ state: state({ currentSegmentId: 's2' }) }));
     rerender(page());
     await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+  });
+});
+
+describe('looking words up', () => {
+  const tibetan = [{
+    id: 't1', idx: 0, text: 'བྱང་ཆུབ་སེམས་དཔའ་', translation: 'bodhisattva', kind: 'verse',
+  }];
+
+  beforeEach(() => {
+    clearLookupCache();
+    mockedUseText.mockReturnValue({ lines: tibetan, loading: false, error: null });
+  });
+
+  it('offers "Look up" over Tibetan, and shows what the words mean', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        tokens: ['བྱང་ཆུབ་སེམས་'], text: [['the mind of awakening']], source: [['ives_waldo']],
+      }),
+    })) as unknown as typeof fetch;
+    open();
+    // བྱང་ཆུབ་སེམས
+    await selectWords('t1', 'source', 0, 12);
+    await screen.findByRole('toolbar');
+
+    await userEvent.click(screen.getByRole('button', { name: /look up/i }));
+
+    expect(await screen.findByText('the mind of awakening')).toBeTruthy();
+    expect(document.querySelector('.classroom-dictionary__name')?.textContent).toBe('Ives Waldo');
+    expect(new URL((global.fetch as jest.Mock).mock.calls[0][0]).searchParams.get('query')).toBe('བྱང་ཆུབ་སེམས');
+    // The words are gone from the selection: the panel has them now.
+    expect(screen.queryByRole('toolbar')).toBeNull();
+  });
+
+  it('shows each meaning straight away, labelled with its dictionary, and opens a long one', async () => {
+    const long = `${'the mind of awakening '.repeat(12)}end`;
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        tokens: ['བྱང་ཆུབ་སེམས་'],
+        text: [['the mind of awakening', `${long}`]],
+        source: [['ives_waldo', 'monlam']],
+      }),
+    })) as unknown as typeof fetch;
+    open();
+    await selectWords('t1', 'source', 0, 12);
+    await userEvent.click(await screen.findByRole('button', { name: /look up/i }));
+
+    expect(await screen.findByText('Meanings from 2 dictionaries')).toBeTruthy();
+    // No card to open first: the short meaning is there, and needs no "Show more".
+    expect(screen.getByText('the mind of awakening')).toBeTruthy();
+    const cards = document.querySelectorAll('.classroom-dictionary__entry');
+    expect(cards).toHaveLength(2);
+    expect(within(cards[0] as HTMLElement).queryByRole('button', { name: 'Show more' })).toBeNull();
+    // The long one is cut short until asked.
+    expect(cards[1].classList.contains('classroom-dictionary__entry--short')).toBe(true);
+    await userEvent.click(within(cards[1] as HTMLElement).getByRole('button', { name: 'Show more' }));
+    expect(cards[1].classList.contains('classroom-dictionary__entry--short')).toBe(false);
+    expect(within(cards[1] as HTMLElement).getByRole('button', { name: 'Show less' }).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('says plainly when nothing is found, and offers the dictionaries to choose from', async () => {
+    global.fetch = jest.fn(async () => ({ ok: false, status: 404, json: async () => ({ detail: 'Not Found' }) })) as unknown as typeof fetch;
+    open();
+    await selectWords('t1', 'source', 0, 12);
+    await userEvent.click(await screen.findByRole('button', { name: /look up/i }));
+    expect(await screen.findByText('No match found')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Choose dictionaries' }));
+    expect(screen.getByRole('button', { name: /dictionaries · 5 of 20/i }).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('turns dictionaries on and off as chips, keeps at least one, and can reset', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true, status: 200, json: async () => ({ tokens: ['x'], text: [['m']], source: [['monlam']] }),
+    })) as unknown as typeof fetch;
+    open();
+    await selectWords('t1', 'source', 0, 12);
+    await userEvent.click(await screen.findByRole('button', { name: /look up/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /dictionaries · 5 of 20/i }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sera' }));
+    expect(screen.getByRole('button', { name: 'Sera' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: /6 of 20/i })).toBeTruthy();
+    expect(new URL((global.fetch as jest.Mock).mock.calls.at(-1)[0]).searchParams.get('dictionaries')).toContain('sera');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Reset to default' }));
+    expect(screen.getByRole('button', { name: /5 of 20/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Sera' }).getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('does not offer it over the English', async () => {
+    open();
+    await selectWords('t1', 'translation', 0, 11);
+    await screen.findByRole('toolbar');
+    expect(screen.queryByRole('button', { name: /look up/i })).toBeNull();
+  });
+
+  it('says so, and offers to try again, when the dictionary cannot be reached', async () => {
+    global.fetch = jest.fn(async () => { throw new TypeError('Failed to fetch'); }) as unknown as typeof fetch;
+    open();
+    await selectWords('t1', 'source', 0, 12);
+    await userEvent.click(await screen.findByRole('button', { name: /look up/i }));
+    expect(await screen.findByText(/could not reach the dictionary/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /try again/i })).toBeTruthy();
+  });
+});
+
+describe('the side panels', () => {
+  const tibetan = [{
+    id: 't1', idx: 0, text: 'བྱང་ཆུབ་སེམས་དཔའ་', translation: 'bodhisattva', kind: 'verse',
+  }, {
+    id: 't2', idx: 1, text: 'སེམས་ཅན་', kind: 'verse',
+  }];
+  const answer = (word: string, meaning: string) => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ tokens: [word], text: [[meaning]], source: [['ives_waldo']] }),
+  });
+
+  beforeEach(() => {
+    clearLookupCache();
+    mockedUseText.mockReturnValue({ lines: tibetan, loading: false, error: null });
+  });
+
+  it('gives focus back to the button that opened a panel when it is closed', async () => {
+    open();
+    const button = await screen.findByRole('button', { name: /my notes/i });
+    await userEvent.click(button);
+    await screen.findByRole('dialog', { name: 'My notes' });
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'My notes' })).toBeNull();
+    expect(document.activeElement).toBe(button);
+  });
+
+  it('shows one at a time: looking words up puts the notes away', async () => {
+    global.fetch = jest.fn(async () => answer('སེམས་', 'mind')) as unknown as typeof fetch;
+    open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    expect(screen.getByRole('dialog', { name: 'My notes' })).toBeTruthy();
+
+    await selectWords('t1', 'source', 8, 12);
+    await userEvent.click(await screen.findByRole('button', { name: /look up/i }));
+
+    expect(await screen.findByRole('dialog', { name: 'Dictionary' })).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'My notes' })).toBeNull();
+  });
+
+  it('keeps the dictionary open, and shows the next words looked up in it', async () => {
+    const answers = [answer('བྱང་ཆུབ་', 'awakening'), answer('སེམས་ཅན་', 'sentient being')];
+    global.fetch = jest.fn(async () => answers.shift()) as unknown as typeof fetch;
+    open();
+    await selectWords('t1', 'source', 0, 7);
+    await userEvent.click(await screen.findByRole('button', { name: /look up/i }));
+    expect(await screen.findByText('awakening')).toBeTruthy();
+
+    // Still open: the next words can be selected beside it.
+    await selectWords('t2', 'source', 0, 7);
+    await userEvent.click(await screen.findByRole('button', { name: /look up/i }));
+    expect(await screen.findByText('sentient being')).toBeTruthy();
+    expect(screen.getAllByRole('dialog', { name: 'Dictionary' })).toHaveLength(1);
+  });
+
+  it('does not stop the student following the teacher while one is open', async () => {
+    const { rerender } = open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    (Element.prototype.scrollIntoView as jest.Mock).mockClear();
+    mockedUseRoom.mockReturnValue(room({ state: state({ currentSegmentId: 't2' }) }));
+    rerender(page());
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+    expect(screen.getByRole('dialog', { name: 'My notes' })).toBeTruthy();
+  });
+
+  it('moves the text over while one is open, and closes on Escape', async () => {
+    open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    expect(document.querySelector('.classroom-page--panel')).not.toBeNull();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'My notes' })).toBeNull();
+    expect(document.querySelector('.classroom-page--panel')).toBeNull();
+  });
+
+  it('stays open after "Go to line" on a wide screen', async () => {
+    mockedApi.listNotes.mockResolvedValue([note({
+      segmentId: 't1', startOffset: 0, endOffset: 7, quote: 'བྱང་ཆུབ', prefix: '', suffix: '་སེམས་དཔའ་',
+    })]);
+    open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /go to line/i }));
+    expect(screen.getByRole('dialog', { name: 'My notes' })).toBeTruthy();
+  });
+});
+
+describe('the note form', () => {
+  const openForm = async () => {
+    open();
+    await selectWords('s1', 'source', 4, 7);
+    await userEvent.click(await screen.findByRole('button', { name: /add note/i }));
+    return screen.findByRole('textbox');
+  };
+
+  it('is ready to type in, with no title row taking room, and a cross to close it', async () => {
+    const box = await openForm();
+    expect(document.activeElement).toBe(box);
+    expect(screen.getByRole('dialog', { name: 'Add a note' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Add a note' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save note' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: /^close$/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add a note' })).toBeNull());
+  });
+
+  it('shows the words in the colour being chosen', async () => {
+    await openForm();
+    const mark = document.querySelector('.classroom-note-dialog__mark') as Element;
+    expect(mark.textContent).toBe('two');
+    expect(mark.classList.contains('classroom-note--yellow')).toBe(true);
+    await userEvent.click(screen.getByRole('radio', { name: 'green' }));
+    expect(mark.classList.contains('classroom-note--green')).toBe(true);
+    expect(screen.getByRole('radio', { name: 'green' }).getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('is a bubble pointing at the selected words, not a modal over the page', async () => {
+    await openForm();
+    const bubble = screen.getByRole('dialog', { name: 'Add a note' });
+    expect(bubble.classList.contains('classroom-note-bubble')).toBe(true);
+    expect(bubble.getAttribute('aria-modal')).toBeNull();
+    // The selection's box is at the top of the screen (see beforeAll), so it goes underneath.
+    expect(bubble.classList.contains('classroom-note-bubble--below')).toBe(true);
+  });
+
+  it('closes on a click elsewhere, but not once something has been written', async () => {
+    const box = await openForm();
+    await userEvent.type(box, 'half a thought');
+    fireEvent.mouseDown(document.body);
+    expect(screen.getByRole('dialog', { name: 'Add a note' })).toBeTruthy();
+    await userEvent.clear(box);
+    fireEvent.mouseDown(document.body);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add a note' })).toBeNull());
+  });
+
+  it('highlights the words in the text while it is open, in the colour being chosen', async () => {
+    const line = {
+      x: 10, y: 20, top: 20, left: 10, width: 30, height: 10, bottom: 30, right: 40, toJSON: () => ({}),
+    } as DOMRect;
+    const had = (Range.prototype as any).getClientRects;
+    (Range.prototype as any).getClientRects = () => [line, line];
+    try {
+      await openForm();
+      const drawn = document.querySelectorAll('.classroom-note-preview');
+      // The same line reported twice is drawn once.
+      expect(drawn).toHaveLength(1);
+      expect(drawn[0].classList.contains('classroom-note--yellow')).toBe(true);
+      await userEvent.click(screen.getByRole('radio', { name: 'pink' }));
+      expect(document.querySelector('.classroom-note-preview')?.classList.contains('classroom-note--pink')).toBe(true);
+      await userEvent.click(screen.getByRole('button', { name: /^close$/i }));
+      await waitFor(() => expect(document.querySelector('.classroom-note-preview')).toBeNull());
+    } finally {
+      (Range.prototype as any).getClientRects = had;
+    }
+  });
+
+  it('saves with Ctrl+Enter', async () => {
+    mockedApi.createNote.mockImplementation(async (_code, n) => note({ ...n, id: 'new' }));
+    const box = await openForm();
+    await userEvent.type(box, 'quick one{Control>}{Enter}{/Control}');
+    await waitFor(() => expect(mockedApi.createNote).toHaveBeenCalled());
+    expect(mockedApi.createNote.mock.calls[0][1]).toMatchObject({ body: 'quick one' });
+  });
+});
+
+describe('hiding my highlights', () => {
+  const hide = async () => {
+    await userEvent.click(screen.getByRole('button', { name: 'Reading options' }));
+    const group = screen.getByRole('group', { name: 'My highlights' });
+    await userEvent.click(within(group).getByText('Hide'));
+  };
+
+  it('takes them out of the text, remembers it, and keeps the notes in the list', async () => {
+    mockedApi.listNotes.mockResolvedValue([note()]);
+    open();
+    await waitFor(() => expect(document.querySelector('.classroom-note')).not.toBeNull());
+    await hide();
+    expect(document.querySelector('.classroom-note')).toBeNull();
+    expect(localStorage.getItem('classroom.highlights')).toBe('hidden');
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    expect(await screen.findByText('my thought')).toBeTruthy();
+  });
+
+  it('starts hidden when that was the choice last time', async () => {
+    localStorage.setItem('classroom.highlights', 'hidden');
+    mockedApi.listNotes.mockResolvedValue([note()]);
+    open();
+    await waitFor(() => expect(mockedApi.listNotes).toHaveBeenCalled());
+    await screen.findByRole('button', { name: /my notes/i });
+    expect(document.querySelector('.classroom-note')).toBeNull();
+  });
+
+  it('shows them again when a new highlight is made', async () => {
+    localStorage.setItem('classroom.highlights', 'hidden');
+    mockedApi.listNotes.mockResolvedValue([note()]);
+    mockedApi.createNote.mockImplementation(async (_code, n) => note({ ...n, id: 'new' }));
+    open();
+    await selectWords('s2', 'source', 0, 4);
+    await userEvent.click(await screen.findByRole('button', { name: /highlight in blue/i }));
+    await waitFor(() => expect(document.querySelectorAll('.classroom-note').length).toBeGreaterThan(1));
+    expect(localStorage.getItem('classroom.highlights')).toBe('shown');
+  });
+
+  it('shows a note\'s words for a moment when it is gone to from the list', async () => {
+    localStorage.setItem('classroom.highlights', 'hidden');
+    mockedApi.listNotes.mockResolvedValue([note()]);
+    open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /go to line/i }));
+    await waitFor(() => expect(document.querySelector('.classroom-page--flash .classroom-note')?.textContent).toBe('two'));
+  });
+
+  it('flashes again on a second press of the same note, after the first has gone', async () => {
+    localStorage.setItem('classroom.highlights', 'hidden');
+    mockedApi.listNotes.mockResolvedValue([note()]);
+    open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    const card = await screen.findByRole('button', { name: /go to line/i });
+    await userEvent.click(card);
+    await waitFor(() => expect(document.querySelector('.classroom-page--flash .classroom-note')).not.toBeNull());
+    // Held, then faded, then taken out of the text.
+    await waitFor(() => expect(document.querySelector('.classroom-page--flash-fade')).not.toBeNull(), { timeout: 3000 });
+    await waitFor(() => expect(document.querySelector('.classroom-note')).toBeNull(), { timeout: 3000 });
+    await userEvent.click(card);
+    await waitFor(() => expect(document.querySelector('.classroom-page--flash .classroom-note')?.textContent).toBe('two'));
+    expect(document.querySelector('.classroom-page--flash-fade')).toBeNull();
+  }, 10000);
+
+  it('brings the line to the middle of the screen, clear of the top bar', async () => {
+    mockedApi.listNotes.mockResolvedValue([note()]);
+    open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    (Element.prototype.scrollIntoView as jest.Mock).mockClear();
+    await userEvent.click(await screen.findByRole('button', { name: /go to line/i }));
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' }));
+  });
+
+  it('tags a note on the hidden side, and leaves the side hidden when it is gone to', async () => {
+    localStorage.setItem('classroom.view', 'source');
+    mockedApi.listNotes.mockResolvedValue([note({
+      id: 'n2', layer: 'translation', startOffset: 4, endOffset: 7, quote: 'dos', prefix: 'uno ', suffix: ' tres',
+    })]);
+    open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    expect(await screen.findByText('Translation is hidden')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: /go to line/i }));
+    expect(document.querySelector('[data-layer="translation"]')).toBeNull();
+    expect(localStorage.getItem('classroom.view')).toBe('source');
+  });
+
+  it('draws a note\'s highlight while it is edited, for the bubble to point at', async () => {
+    localStorage.setItem('classroom.highlights', 'hidden');
+    mockedApi.listNotes.mockResolvedValue([note()]);
+    open();
+    await userEvent.click(screen.getByRole('button', { name: /my notes/i }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    await screen.findByRole('dialog', { name: 'Edit note' });
+    expect(document.querySelector('.classroom-reader [data-note-id="n1"]')?.textContent).toBe('two');
+    await waitFor(() => expect(document.querySelector('.classroom-note-bubble--floating')).toBeNull());
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(document.querySelector('.classroom-note')).toBeNull());
+  });
+
+  it('is not offered to a teacher, who has no highlights', async () => {
+    mockedUseRoom.mockReturnValue(room({ state: state({ role: 'teacher' }) }));
+    open();
+    await userEvent.click(screen.getByRole('button', { name: 'Reading options' }));
+    expect(screen.queryByRole('group', { name: 'My highlights' })).toBeNull();
   });
 });

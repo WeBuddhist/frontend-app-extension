@@ -19,6 +19,9 @@ interface Props {
   onTextSize: (size: TextSize) => void;
   sectionTitles: boolean;
   onSectionTitles: (shown: boolean) => void;
+  /** Whether the student's own highlights are drawn. Offered only to those who have notes. */
+  highlights?: boolean;
+  onHighlights?: (shown: boolean) => void;
 }
 
 /**
@@ -57,6 +60,17 @@ const SegmentedIcon = lineIcon(['M3 6h18', 'M3 12h18', 'M3 18h18']);
 const ShowIcon = lineIcon(['M3 6h.01', 'M3 12h.01', 'M3 18h.01', 'M8 6h13', 'M8 12h13', 'M8 18h13']);
 /** Hide titles: a list struck through. */
 const HideIcon = lineIcon(['M11 12H3', 'M16 6H3', 'M16 18H3', 'm19 10-4 4', 'm15 10 4 4']);
+/** An eye, and an eye struck through: the student's highlights drawn or not. */
+const EyeIcon = lineIcon([
+  'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z',
+  'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+]);
+const EyeOffIcon = lineIcon([
+  'M9.9 4.24A9.1 9.1 0 0 1 12 4c6.5 0 10 7 10 7a13.2 13.2 0 0 1-1.67 2.68',
+  'M6.61 6.61A13.5 13.5 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.39-1.61',
+  'M14.12 14.12a3 3 0 1 1-4.24-4.24',
+  'M2 2l20 20',
+]);
 
 interface ChoiceProps {
   label: string;
@@ -93,7 +107,7 @@ const Choice = ({
  */
 const ReadingOptions = ({
   view, onView, layout, onLayout, textSize, onTextSize, hasTranslation, hasOutline,
-  sectionTitles, onSectionTitles,
+  sectionTitles, onSectionTitles, highlights = true, onHighlights,
 }: Props) => {
   const intl = useIntl();
 
@@ -198,6 +212,28 @@ const ReadingOptions = ({
                 icon={HideIcon}
                 selected={!sectionTitles}
                 onSelect={() => onSectionTitles(false)}
+              />
+            </div>
+          </div>
+        )}
+
+        {onHighlights && (
+          <div role="group" aria-labelledby="classroom-options-highlights">
+            <p className="classroom-options__heading" id="classroom-options-highlights">
+              {intl.formatMessage(messages.highlightsHeading)}
+            </p>
+            <div className="classroom-options__pair">
+              <Choice
+                label={intl.formatMessage(messages.tocShow)}
+                icon={EyeIcon}
+                selected={highlights}
+                onSelect={() => onHighlights(true)}
+              />
+              <Choice
+                label={intl.formatMessage(messages.tocHide)}
+                icon={EyeOffIcon}
+                selected={!highlights}
+                onSelect={() => onHighlights(false)}
               />
             </div>
           </div>

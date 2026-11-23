@@ -244,6 +244,11 @@ const messages = defineMessages({
     defaultMessage: 'Reading options',
     description: 'Accessible name of the button that opens the reading options menu.',
   },
+  highlightsHeading: {
+    id: 'extension.classroom.options.highlightsHeading',
+    defaultMessage: 'My highlights',
+    description: 'Heading of the reading option that shows or hides the student\'s own highlights in the text.',
+  },
   tocHeading: {
     id: 'extension.classroom.toc.heading',
     defaultMessage: 'Table of Contents',
@@ -480,8 +485,38 @@ const messages = defineMessages({
   },
   notesEmpty: {
     id: 'extension.classroom.notes.empty',
-    defaultMessage: 'You have no notes yet. Select some words in the text to highlight them or to add a note.',
+    defaultMessage: 'Select words in the text to highlight them or add a note.',
     description: 'Shown when a student has made no notes.',
+  },
+  notesEmptyTitle: {
+    id: 'extension.classroom.notes.emptyTitle',
+    defaultMessage: 'No notes yet',
+    description: 'Heading shown in the list of notes when there are none.',
+  },
+  notesCount: {
+    id: 'extension.classroom.notes.count',
+    defaultMessage: '{count, plural, one {# note} other {# notes}}',
+    description: 'How many notes the student has in this class.',
+  },
+  notesFilterAll: {
+    id: 'extension.classroom.notes.filterAll',
+    defaultMessage: 'All',
+    description: 'Filter that shows notes of every colour.',
+  },
+  notesFilterLabel: {
+    id: 'extension.classroom.notes.filterLabel',
+    defaultMessage: 'Show notes by colour',
+    description: 'Accessible name of the row of colour filters over the list of notes.',
+  },
+  notesFilterColor: {
+    id: 'extension.classroom.notes.filterColor',
+    defaultMessage: 'Only {color}',
+    description: 'Accessible name of a filter that shows notes of one colour only.',
+  },
+  notesFilteredEmpty: {
+    id: 'extension.classroom.notes.filteredEmpty',
+    defaultMessage: 'No notes in this colour.',
+    description: 'Shown when a colour filter leaves nothing in the list.',
   },
   notesLoading: {
     id: 'extension.classroom.notes.loading',
@@ -507,6 +542,86 @@ const messages = defineMessages({
     defaultMessage: 'Add note',
     description: 'Button that adds a note to the selected words.',
   },
+  lookUp: {
+    id: 'extension.classroom.dictionary.lookUp',
+    defaultMessage: 'Look up',
+    description: 'Button over selected Tibetan words that shows what they mean in the dictionaries.',
+  },
+  dictionaryHeading: {
+    id: 'extension.classroom.dictionary.heading',
+    defaultMessage: 'Dictionary',
+    description: 'Heading of the panel that shows what the selected words mean.',
+  },
+  dictionaryLoading: {
+    id: 'extension.classroom.dictionary.loading',
+    defaultMessage: 'Looking it up…',
+    description: 'Shown while the dictionaries are being asked.',
+  },
+  dictionaryNotFound: {
+    id: 'extension.classroom.dictionary.notFound',
+    defaultMessage: 'Try selecting fewer words, or add more dictionaries.',
+    description: 'Shown when no dictionary knows the selected words.',
+  },
+  dictionaryNotFoundTitle: {
+    id: 'extension.classroom.dictionary.notFoundTitle',
+    defaultMessage: 'No match found',
+    description: 'Heading of the message shown when no dictionary knows the selected words.',
+  },
+  dictionaryPicker: {
+    id: 'extension.classroom.dictionary.picker',
+    defaultMessage: 'Dictionaries · {count} of {total}',
+    description: 'Button that shows and hides the list of dictionaries to search, with how many are on.',
+  },
+  dictionaryReset: {
+    id: 'extension.classroom.dictionary.reset',
+    defaultMessage: 'Reset to default',
+    description: 'Turns the chosen dictionaries back to the default five.',
+  },
+  dictionaryEntries: {
+    id: 'extension.classroom.dictionary.entries',
+    defaultMessage: '{count, plural, one {# entry} other {# entries}}',
+    description: 'How many entries one dictionary has for the word.',
+  },
+  dictionaryMeaningsFrom: {
+    id: 'extension.classroom.dictionary.meaningsFrom',
+    defaultMessage: 'Meanings from {count, plural, one {# dictionary} other {# dictionaries}}',
+    description: 'Over the cards of meanings for a word: how many dictionaries they come from. Each card is labelled with its dictionary\'s name.',
+  },
+  dictionaryShowMore: {
+    id: 'extension.classroom.dictionary.showMore',
+    defaultMessage: 'Show more',
+    description: 'Button on a dictionary\'s card that shows the whole of its meaning, and any further entries.',
+  },
+  dictionaryShowLess: {
+    id: 'extension.classroom.dictionary.showLess',
+    defaultMessage: 'Show less',
+    description: 'Button on a dictionary\'s card that cuts its meaning short again.',
+  },
+  dictionarySplit: {
+    id: 'extension.classroom.dictionary.split',
+    defaultMessage: 'Not found as a whole phrase, so shown word by word.',
+    description: 'Shown when a phrase was looked up one word at a time because it was not found whole.',
+  },
+  dictionaryWordNotFound: {
+    id: 'extension.classroom.dictionary.wordNotFound',
+    defaultMessage: 'Not in the chosen dictionaries.',
+    description: 'Shown under one word of a phrase that no dictionary knows.',
+  },
+  dictionaryRetry: {
+    id: 'extension.classroom.dictionary.retry',
+    defaultMessage: 'Try again',
+    description: 'Button that asks the dictionaries again after a failure.',
+  },
+  dictionaryChoose: {
+    id: 'extension.classroom.dictionary.choose',
+    defaultMessage: 'Choose dictionaries',
+    description: 'Opens the list of dictionaries to turn on or off.',
+  },
+  dictionarySource: {
+    id: 'extension.classroom.dictionary.source',
+    defaultMessage: 'Meanings from Padma (padma.io).',
+    description: 'Says where the dictionary meanings come from.',
+  },
   noteDialogNew: {
     id: 'extension.classroom.notes.dialogNew',
     defaultMessage: 'Add a note',
@@ -514,27 +629,37 @@ const messages = defineMessages({
   },
   noteDialogEdit: {
     id: 'extension.classroom.notes.dialogEdit',
-    defaultMessage: 'Your note',
+    defaultMessage: 'Edit note',
     description: 'Heading when looking at or changing a note.',
   },
   noteColorLabel: {
     id: 'extension.classroom.notes.colorLabel',
-    defaultMessage: 'Colour',
-    description: 'Label for the colour of a highlight.',
+    defaultMessage: 'Highlight',
+    description: 'Label for the row of colours a highlight can be.',
   },
   noteBodyLabel: {
     id: 'extension.classroom.notes.bodyLabel',
-    defaultMessage: 'Your note',
-    description: 'Label for the text of a note.',
+    defaultMessage: 'Note (optional)',
+    description: 'Accessible name of the box a note is written in.',
   },
   noteBodyHelp: {
     id: 'extension.classroom.notes.bodyHelp',
-    defaultMessage: 'Leave it empty to keep just the highlight.',
-    description: 'Explains that a note can be a highlight alone.',
+    defaultMessage: 'Only you can see this',
+    description: 'Beside the save button: who can see the note.',
+  },
+  noteBodyPlaceholder: {
+    id: 'extension.classroom.notes.bodyPlaceholder',
+    defaultMessage: 'Write a note… (optional)',
+    description: 'Placeholder in the empty note box, suggesting what to write.',
+  },
+  noteQuoteLabel: {
+    id: 'extension.classroom.notes.quoteLabel',
+    defaultMessage: 'Selected words',
+    description: 'Accessible name of the selected words shown at the top of the note form.',
   },
   saveNote: {
     id: 'extension.classroom.notes.save',
-    defaultMessage: 'Save',
+    defaultMessage: 'Save note',
     description: 'Button that saves a note.',
   },
   saving: {
@@ -561,6 +686,16 @@ const messages = defineMessages({
     id: 'extension.classroom.notes.textChanged',
     defaultMessage: 'The text here has changed, so this note can no longer be placed.',
     description: 'Shown on a note whose words are no longer in the text.',
+  },
+  sideHiddenSource: {
+    id: 'extension.classroom.notes.sideHidden.source',
+    defaultMessage: 'Source is hidden',
+    description: 'Tag on a note in the list of notes whose words are in the Tibetan source, which the reader has hidden.',
+  },
+  sideHiddenTranslation: {
+    id: 'extension.classroom.notes.sideHidden.translation',
+    defaultMessage: 'Translation is hidden',
+    description: 'Tag on a note in the list of notes whose words are in the translation, which the reader has hidden.',
   },
   classMenu: {
     id: 'extension.classroom.classMenu',

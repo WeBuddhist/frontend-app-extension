@@ -233,6 +233,24 @@ describe('what the server says', () => {
     expect(mocked.me).toHaveBeenCalledTimes(1);
   });
 
+  it('reconnects after the server closes the expired connection, even if the renewal won the race', async () => {
+    await connected();
+    mocked.me.mockClear();
+    act(() => socket.hear('auth:expired'));
+    // The renewal finishes while the old connection is still open: that reconnect does nothing.
+    await waitFor(() => expect(socket.connects).toBe(1));
+    act(() => socket.hear('disconnect', 'io server disconnect'));
+    await waitFor(() => expect(socket.connects).toBe(2));
+    expect(mocked.me).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not reconnect on its own when the server closes a connection for another reason', async () => {
+    await connected();
+    act(() => socket.hear('disconnect', 'io server disconnect'));
+    await new Promise((resolve) => { setTimeout(resolve, 20); });
+    expect(socket.connects).toBe(0);
+  });
+
   it('puts the line back when the server refuses a move', async () => {
     socket.joinAnswer = { ok: true, state: state({ role: 'teacher', currentSegmentId: 'a' }) };
     socket.emit = function emit(event: string, payload: unknown, ack?: any) {
@@ -273,10 +291,46 @@ describe('what the server says', () => {
     expect(socket.emitted.filter((e) => e.event === 'room:join')).toHaveLength(2);
   });
 
-  it('shows the server\'s reason when it refuses the connection', async () => {
+  it('renews the login and tries again when the server refuses a reconnect, without an error', async () => {
     const { result } = await connected();
+    act(() => socket.hear('disconnect'));
+    mocked.me.mockClear();
+    act(() => socket.hear('connect_error', new Error('Log in to join a class.')));
+    await waitFor(() => expect(socket.connects).toBe(1));
+    expect(mocked.me).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('shows the server\'s reason when it refuses again after the login was renewed', async () => {
+    const { result } = await connected();
+    act(() => socket.hear('connect_error', new Error('Log in to join a class.')));
+    await waitFor(() => expect(socket.connects).toBe(1));
     act(() => socket.hear('connect_error', new Error('Your login has expired. Please log in again.')));
     expect(result.current.error).toBe('Your login has expired. Please log in again.');
+  });
+
+  it('renews the login again after a good connection in between', async () => {
+    await connected();
+    act(() => socket.hear('connect_error', new Error('Log in to join a class.')));
+    await waitFor(() => expect(socket.connects).toBe(1));
+    act(() => socket.hear('connect'));
+    act(() => socket.hear('connect_error', new Error('Log in to join a class.')));
+    await waitFor(() => expect(socket.connects).toBe(2));
+  });
+
+  it('shows why when the login cannot be renewed', async () => {
+    const { result } = await connected();
+    mocked.me.mockRejectedValueOnce(new Error('Log in to use the classroom.'));
+    act(() => socket.hear('connect_error', new Error('Log in to join a class.')));
+    await waitFor(() => expect(result.current.error).toBe('Log in to use the classroom.'));
+  });
+
+  it('shows the transport\'s trouble while the socket keeps trying by itself', async () => {
+    const { result } = await connected();
+    (socket as unknown as { active: boolean }).active = true;
+    act(() => socket.hear('connect_error', new Error('xhr poll error')));
+    expect(result.current.error).toBe('Cannot reach the classroom server.');
+    expect(socket.connects).toBe(0);
   });
 });
 

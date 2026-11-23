@@ -1,5 +1,5 @@
 import {
-  useEffect, useMemo, useRef, useState,
+  useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import { useIntl } from '@edx/frontend-platform/i18n';
 import { Button, useToggle } from '@openedx/paragon';
@@ -12,11 +12,13 @@ import SyncButton from './SyncButton';
 import ClassMenu from './ClassMenu';
 import Head from '../Head';
 import ConfirmDialog from './ConfirmDialog';
+import DictionaryPanel from './DictionaryPanel';
 import { NotesIcon } from './icons';
 import ManageClass from './ManageClass';
 import NoteDialog from './NoteDialog';
 import NotesPanel from './NotesPanel';
 import SelectionBar from './SelectionBar';
+import { WIDE, type PanelName } from './SidePanel';
 import Reader from './Reader';
 import ReadingOptions from './ReadingOptions';
 import * as api from './api';
@@ -28,15 +30,15 @@ import {
 } from './session';
 import { relocate, type Mark } from './anchors';
 import type { LineMarks } from './Reader';
-import type { Note, NoteColor } from './types';
+import type { Note, NoteColor, NoteLayer } from './types';
 import { useNoteSelection, type UsableSelection } from './useNoteSelection';
 import { useHideOnScroll } from './useHideOnScroll';
 import { useNotes } from './useNotes';
 import { useOutline } from './useOutline';
 import { useText } from './useText';
 import {
-  recallLayout, recallSectionTitles, recallTextSize, recallView, rememberLayout,
-  rememberSectionTitles, rememberTextSize,
+  recallHighlights, recallLayout, recallSectionTitles, recallTextSize, recallView, rememberHighlights,
+  rememberLayout, rememberSectionTitles, rememberTextSize,
   rememberView, type LayoutMode, type TextSize, type ViewMode,
 } from './view';
 
@@ -51,6 +53,10 @@ export const splitTitle = (title: string): { main: string; sub: string | null } 
   const match = /^(.*?)\s*\(([^()]+)\)\s*$/.exec(title);
   return match && match[1] ? { main: match[1], sub: match[2] } : { main: title, sub: null };
 };
+
+/** How long a hidden note's words show when it is gone to from "My notes", then fade. */
+const FLASH_HOLD_MS = 1800;
+const FLASH_FADE_MS = 700;
 
 /** Why a class stopped being live for someone, said in words they can act on. */
 const endedMessages = {
@@ -76,6 +82,55 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
   const [view, setView] = useState<ViewMode>(recallView);
   const [layout, setLayout] = useState<LayoutMode>(recallLayout);
   const [sectionTitles, setSectionTitles] = useState(recallSectionTitles);
+  // Whether the student's highlights are drawn in the text. Hidden, the text reads clean; the
+  // notes are all still in "My notes".
+  const [showHighlights, setShowHighlights] = useState(recallHighlights);
+  const chooseHighlights = (next: boolean) => { setShowHighlights(next); rememberHighlights(next); };
+  // With highlights hidden, the note just gone to from "My notes" is shown for a moment, so it
+  // is clear which words it is about: drawn ('show'), then faded out ('fade'), then taken away.
+  // Driven by state, not by a CSS animation, which a browser does not replay on a highlight it
+  // has already drawn (the same note twice, or another on the same line).
+  const [flash, setFlash] = useState<{ id: string; phase: 'show' | 'fade' } | null>(null);
+  const flashTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const flashFrame = useRef<number | null>(null);
+  const stopFlash = () => {
+    flashTimers.current.splice(0).forEach(clearTimeout);
+    if (flashFrame.current !== null) { cancelAnimationFrame(flashFrame.current); flashFrame.current = null; }
+  };
+  useEffect(() => stopFlash, []);
+
+  /**
+   * Flash a note's words once its line has come to rest on the screen. Going to a line scrolls
+   * smoothly, and a far one takes a moment to arrive: started at once, the flash would be over
+   * before the words were in sight. The line's own position is watched (not the window's), so
+   * it works whatever is doing the scrolling; after a while it flashes anyway.
+   */
+  const flashWhenSeen = (segmentId: string, noteId: string) => {
+    stopFlash();
+    setFlash(null);
+    const later = (fn: () => void, ms: number) => { flashTimers.current.push(setTimeout(fn, ms)); };
+    const begin = () => {
+      stopFlash();
+      setFlash({ id: noteId, phase: 'show' });
+      later(() => setFlash({ id: noteId, phase: 'fade' }), FLASH_HOLD_MS);
+      later(() => setFlash(null), FLASH_HOLD_MS + FLASH_FADE_MS);
+    };
+    const line = document.querySelector(`.classroom-reader [data-segment-id="${segmentId}"]`);
+    if (!line || typeof requestAnimationFrame !== 'function') { begin(); return; }
+    const started = Date.now();
+    let lastTop = line.getBoundingClientRect().top;
+    let stillSince = started;
+    const watch = () => {
+      const now = Date.now();
+      const { top } = line.getBoundingClientRect();
+      if (Math.abs(top - lastTop) > 0.5) { lastTop = top; stillSince = now; }
+      // Give the scroll a moment to begin, then wait for it to stop.
+      const settled = now - started > 150 && now - stillSince > 150;
+      if (settled || now - started > 1500) { flashFrame.current = null; begin(); return; }
+      flashFrame.current = requestAnimationFrame(watch);
+    };
+    flashFrame.current = requestAnimationFrame(watch);
+  };
   const [textSize, setTextSize] = useState<TextSize>(recallTextSize);
   const [jump, setJump] = useState<{ segmentId: string; n: number; exact?: boolean } | null>(null);
   const [managing, openManage, closeManage] = useToggle(false);
@@ -102,17 +157,31 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
   // so nothing in their view competes with a tap that moves the class.
   const notesOn = state?.role === 'student';
   const noteStore = useNotes(code, notesOn);
-  const [panelOpen, openPanel, closePanel] = useToggle(false);
+  /**
+   * The side panel that is open, if any. One at a time: they share the right-hand side.
+   * Opening one closes the others.
+   */
+  const [panel, setPanel] = useState<PanelName | null>(null);
+  const togglePanel = (name: PanelName) => setPanel((open) => (open === name ? null : name));
+  const closePanel = () => setPanel(null);
   /** The note dialog: making one on a selection, or looking at one that exists. */
   const [dialog, setDialog] = useState<
   { kind: 'new'; selection: UsableSelection } | { kind: 'edit'; id: string } | null
   >(null);
+  /** The words being looked up in the dictionary, while the dictionary is open. */
+  const [lookupQuery, setLookupQuery] = useState<string | null>(null);
+  // Words can be selected while a panel is open: that is how the next words are looked up.
   const { selection, clear: clearSelection } = useNoteSelection(notesOn && !dialog);
   const [savingHighlight, setSavingHighlight] = useState(false);
   const [highlightError, setHighlightError] = useState<string | null>(null);
   // The room tells us which edition it pinned; the text is loaded from that, once.
   const text = useText(state?.editionId, state?.translationEditionId);
   const outline = useOutline(state?.editionId);
+  // Contents is only there while the text has headings. If they go while it is open, nothing is
+  // open any more, and the text should not stay moved over for it.
+  useEffect(() => {
+    if (outline.length === 0) { setPanel((open) => (open === 'contents' ? null : open)); }
+  }, [outline.length]);
   // The class's own name when it has one (a teacher may call it "Tuesday study group"),
   // with the text's title beneath it so the name never hides what is being read.
   const title = splitTitle(state?.name ?? code);
@@ -150,8 +219,51 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
     };
   }, [noteStore.notes, text.lines]);
 
+  // What the reader draws: every highlight, or (hidden) only the one being flashed and the one
+  // being edited, so the note's bubble has its words to point at.
+  const editingId = dialog?.kind === 'edit' ? dialog.id : null;
+  const drawn = useMemo(() => {
+    if (showHighlights) { return marks; }
+    const only = new Map<string, LineMarks>();
+    const wanted = new Set([flash?.id, editingId].filter(Boolean));
+    if (wanted.size === 0) { return only; }
+    marks.forEach((entry, segmentId) => {
+      const kept: LineMarks = {};
+      (['source', 'translation'] as const).forEach((layer) => {
+        const found = entry[layer]?.filter((m) => wanted.has(m.id));
+        if (found?.length) { kept[layer] = found; }
+      });
+      if (kept.source || kept.translation) { only.set(segmentId, kept); }
+    });
+    return only;
+  }, [marks, showHighlights, flash, editingId]);
+
+  /** A new highlight is to be seen: making one while they are hidden shows them again. */
+  const revealHighlights = () => { if (!showHighlights) { chooseHighlights(true); } };
+
   const noteById = (id: string): Note | undefined => noteStore.notes.find((n) => n.id === id);
-  const editing = dialog?.kind === 'edit' ? noteById(dialog.id) : undefined;
+
+  // Whether the open note has been written in and not saved. Opening another note over it would
+  // throw that away, so while it has, the other note waits: the bubble stays as it is.
+  const noteChanged = useRef(false);
+  const openNote = (id: string) => {
+    if (dialog && noteChanged.current) { return false; }
+    // A flash still fading would take the note's highlight away while it is being edited.
+    stopFlash();
+    setFlash(null);
+    setDialog({ kind: 'edit', id });
+    return true;
+  };
+  const editing = editingId ? noteById(editingId) : undefined;
+
+  // The edited note's highlight in the text, for its bubble to point at. Looked for once the page
+  // has drawn it: with highlights hidden, it is drawn only from the moment the note is opened.
+  const [editAnchor, setEditAnchor] = useState<Element | null>(null);
+  useLayoutEffect(() => {
+    setEditAnchor(editingId
+      ? document.querySelector(`.classroom-reader [data-note-id="${editingId}"]`)
+      : null);
+  }, [editingId, drawn]);
 
   /** Highlight the selection in one press, with no note. */
   const highlight = async (color: NoteColor) => {
@@ -171,6 +283,7 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
         body: null,
       });
       clearSelection();
+      revealHighlights();
     } catch (cause) {
       setHighlightError(cause instanceof Error ? cause.message : 'Could not save that.');
     } finally {
@@ -195,6 +308,7 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
         body: words,
       });
       clearSelection();
+      revealHighlights();
     } else if (dialog?.kind === 'edit') {
       await noteStore.update(dialog.id, { color, body: words });
     }
@@ -204,12 +318,17 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
   // Following the teacher scrolls the screen, and a screen that moves under a half-made
   // selection, or an open note, loses it. So while the student is at it the reader holds still.
   // It does not then jump to catch up when they finish: the "Sync with teacher" button is how
-  // they choose to go back.
-  const notesBusy = Boolean(selection) || Boolean(dialog) || panelOpen;
+  // they choose to go back. An open side panel does not hold it: a panel can stay open all
+  // lesson, and the class goes on beside it.
+  const notesBusy = Boolean(selection) || Boolean(dialog);
 
   // Offered only when there is something to choose between.
   const hasTranslation = text.lines.some((line) => Boolean(line.translation));
   const chooseView = (next: ViewMode) => { setView(next); rememberView(next); };
+  // Showing only one side hides the other, and the notes on it.
+  const hiddenLayer: NoteLayer | null = (
+    { source: 'translation', translation: 'source', both: null } as const
+  )[view];
   const chooseSectionTitles = (next: boolean) => {
     setSectionTitles(next);
     rememberSectionTitles(next);
@@ -276,7 +395,15 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
   }
 
   return (
-    <div className="classroom-page">
+    <div
+      className={[
+        'classroom-page',
+        'classroom-page--reading',
+        panel ? 'classroom-page--panel' : '',
+        !showHighlights && flash ? 'classroom-page--flash' : '',
+        !showHighlights && flash?.phase === 'fade' ? 'classroom-page--flash-fade' : '',
+      ].filter(Boolean).join(' ')}
+    >
       <Head title={state?.name ?? intl.formatMessage(messages.pageTitle)} />
 
       <header ref={headerRef} className={`classroom-page__header${headerHidden ? ' classroom-page__header--hidden' : ''}`}>
@@ -311,6 +438,8 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
             <div className="classroom-page__controls">
               {outline.length > 0 && (
                 <Contents
+                  open={panel === 'contents'}
+                  onOpenChange={(open) => setPanel(open ? 'contents' : null)}
                   outline={outline}
                   onJump={jumpTo}
                   currentSegmentId={state?.currentSegmentId ?? null}
@@ -324,7 +453,8 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
                 className="classroom-notes-button"
                 aria-label={intl.formatMessage(messages.notesButton)}
                 title={intl.formatMessage(messages.notesButton)}
-                onClick={openPanel}
+                aria-expanded={panel === 'notes'}
+                onClick={() => togglePanel('notes')}
               >
                 <NotesIcon />
               </Button>
@@ -340,6 +470,8 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
                 hasOutline={outline.length > 0}
                 sectionTitles={sectionTitles}
                 onSectionTitles={chooseSectionTitles}
+                highlights={showHighlights}
+                onHighlights={notesOn ? chooseHighlights : undefined}
               />
               {/* One button for everything a teacher does to the class, in place of a badge
                 and two buttons: the header is for reading, and was crowded. */}
@@ -402,8 +534,8 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
             textSize={textSize}
             headings={sectionTitles ? headings : undefined}
             jump={jump}
-            marks={notesOn ? marks : undefined}
-            onMarkOpen={notesOn ? (id) => setDialog({ kind: 'edit', id }) : undefined}
+            marks={notesOn ? drawn : undefined}
+            onMarkOpen={notesOn ? openNote : undefined}
           />
         )}
         {!text.loading && text.lines.length === 0 && !text.error && (
@@ -435,7 +567,15 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
           busy={savingHighlight}
           onColor={highlight}
           onNote={() => setDialog({ kind: 'new', selection })}
+          onLookUp={() => {
+            setLookupQuery(selection.anchor.quote);
+            setPanel('dictionary');
+            clearSelection();
+          }}
         />
+      )}
+      {notesOn && (
+        <DictionaryPanel isOpen={panel === 'dictionary'} query={lookupQuery} onClose={closePanel} />
       )}
       {notesOn && highlightError && (
         <p className="classroom-page__error classroom-note-toast" role="alert">{highlightError}</p>
@@ -449,6 +589,10 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
           layer={dialog.selection.layer}
           initialColor="yellow"
           initialBody=""
+          anchor={dialog.selection.rect}
+          marks={dialog.selection.rects}
+          range={dialog.selection.range}
+          onChangedChange={(changed) => { noteChanged.current = changed; }}
           onSave={saveNote}
           onClose={() => setDialog(null)}
         />
@@ -461,6 +605,11 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
           layer={editing.layer}
           initialColor={editing.color}
           initialBody={editing.body ?? ''}
+          // A fresh bubble for each note, so nothing of one is carried into the next.
+          key={editing.id}
+          // The highlight in the text, for the bubble to point at. None when its words are gone.
+          anchor={editAnchor}
+          onChangedChange={(changed) => { noteChanged.current = changed; }}
           onSave={saveNote}
           onDelete={async () => { await noteStore.remove(editing.id); setDialog(null); }}
           onClose={() => setDialog(null)}
@@ -468,15 +617,25 @@ const Classroom = ({ code, onLeave, onCodeChanged }: ClassroomProps) => {
       )}
       {notesOn && (
         <NotesPanel
-          isOpen={panelOpen}
+          isOpen={panel === 'notes'}
           notes={noteStore.notes}
           loading={noteStore.loading}
           error={noteStore.error}
           order={order}
           detached={detached}
+          hiddenLayer={hiddenLayer}
           onClose={closePanel}
-          onGoTo={(segmentId) => setJump((previous) => ({ segmentId, n: (previous?.n ?? 0) + 1 }))}
-          onEdit={(id) => { closePanel(); setDialog({ kind: 'edit', id }); }}
+          onGoTo={(segmentId, noteId) => {
+            // To the middle of the screen, as stepping line by line does: a line sent to the top
+            // sits under the site's top bar, out of sight.
+            setJump((previous) => ({ segmentId, n: (previous?.n ?? 0) + 1, exact: true }));
+            if (!showHighlights) { flashWhenSeen(segmentId, noteId); }
+          }}
+          onEdit={(id) => {
+            // Where the panel lies over the text rather than beside it, it would cover the words
+            // the note is about: it is put away.
+            if (openNote(id) && window.innerWidth < WIDE) { closePanel(); }
+          }}
         />
       )}
 

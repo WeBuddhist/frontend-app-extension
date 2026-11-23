@@ -2,6 +2,8 @@ import type { CSSProperties } from 'react';
 import { useIntl } from '@edx/frontend-platform/i18n';
 import { Button } from '@openedx/paragon';
 
+import { hasTibetan } from './dictionary';
+import { AddNoteIcon, DictionaryIcon } from './icons';
 import type { UsableSelection } from './useNoteSelection';
 import messages from './messages';
 import { NOTE_COLORS, type NoteColor } from './types';
@@ -12,6 +14,8 @@ interface Props {
   onColor: (color: NoteColor) => void;
   /** Add a note to the selection. */
   onNote: () => void;
+  /** Show what the selected words mean. Offered only for Tibetan. */
+  onLookUp?: () => void;
   busy?: boolean;
 }
 
@@ -33,7 +37,7 @@ const colorNames = {
  * nothing left to highlight: `mousedown` is not allowed to move focus off it.
  */
 const SelectionBar = ({
-  selection, onColor, onNote, busy = false,
+  selection, onColor, onNote, onLookUp, busy = false,
 }: Props) => {
   const intl = useIntl();
   const { rect } = selection;
@@ -51,21 +55,46 @@ const SelectionBar = ({
       style={style}
       onMouseDown={(event) => event.preventDefault()}
     >
-      {NOTE_COLORS.map((color) => (
-        <button
-          key={color}
-          type="button"
-          disabled={busy}
-          className={`classroom-selection-bar__swatch classroom-note--${color}`}
-          aria-label={intl.formatMessage(messages.highlightColor, {
-            color: intl.formatMessage(colorNames[color]),
-          })}
-          onClick={() => onColor(color)}
-        />
-      ))}
-      <Button variant="tertiary" size="sm" disabled={busy} onClick={onNote}>
-        {intl.formatMessage(messages.addNote)}
+      <div className="classroom-selection-bar__colors">
+        {NOTE_COLORS.map((color) => (
+          <button
+            key={color}
+            type="button"
+            disabled={busy}
+            className={`classroom-selection-bar__swatch classroom-note--${color}`}
+            aria-label={intl.formatMessage(messages.highlightColor, {
+              color: intl.formatMessage(colorNames[color]),
+            })}
+            onClick={() => onColor(color)}
+          />
+        ))}
+      </div>
+      <span className="classroom-selection-bar__divider" aria-hidden="true" />
+      <Button
+        variant="tertiary"
+        size="sm"
+        className="classroom-selection-bar__action"
+        aria-label={intl.formatMessage(messages.addNote)}
+        title={intl.formatMessage(messages.addNote)}
+        disabled={busy}
+        onClick={onNote}
+      >
+        <AddNoteIcon size={16} />
+        <span className="classroom-selection-bar__label">{intl.formatMessage(messages.addNote)}</span>
       </Button>
+      {onLookUp && hasTibetan(selection.anchor.quote) && (
+        <Button
+          variant="tertiary"
+          size="sm"
+          className="classroom-selection-bar__action"
+          aria-label={intl.formatMessage(messages.lookUp)}
+          title={intl.formatMessage(messages.lookUp)}
+          onClick={onLookUp}
+        >
+          <DictionaryIcon size={16} />
+          <span className="classroom-selection-bar__label">{intl.formatMessage(messages.lookUp)}</span>
+        </Button>
+      )}
     </div>
   );
 };
