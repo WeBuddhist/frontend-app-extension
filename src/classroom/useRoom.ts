@@ -135,12 +135,50 @@ export function useRoom(code: string): Room {
         });
       };
 
+      // The login lasts about an hour, and a socket cannot renew it. Asking the service who we
+      // are does (see `me()` above), after which the connection can be made again.
+      let refreshing = false;
+      const refreshAndReconnect = () => {
+        if (refreshing) { return; }
+        refreshing = true;
+        me()
+          .then(() => { if (!cancelled) { socket?.connect(); } })
+          .catch((cause) => {
+            if (!cancelled) {
+              setError(cause instanceof Error ? cause.message : 'Your login has expired.');
+            }
+          })
+          .finally(() => { refreshing = false; });
+      };
+      // Whether the login has been renewed since the last good connection. Once is enough: a
+      // second refusal straight after is a real one, and is shown.
+      let renewed = false;
+      // Set when the server says the login ran out, until the connection it then closes is made
+      // again. A connection the server closes is not retried by the socket on its own.
+      let expired = false;
+
       socket.on('connect', () => {
+        renewed = false;
+        expired = false;
         setConnected(true);
         join();
       });
-      socket.on('disconnect', () => setConnected(false));
+      socket.on('disconnect', (reason) => {
+        setConnected(false);
+        // The renewal started on `auth:expired` may have finished before this close arrived, and
+        // its reconnect found the old connection still open and did nothing: renew and try again.
+        if (expired && reason === 'io server disconnect') { refreshAndReconnect(); }
+      });
       socket.on('connect_error', (cause) => {
+        // Refused by the server, rather than not reached: the socket then stops trying by
+        // itself. After a while away (a sleeping laptop, a tab in the background) that is
+        // nearly always a login that ran out while the connection was down, so it is renewed
+        // and the connection tried again before anything is shown.
+        if (!socket?.active && !renewed) {
+          renewed = true;
+          refreshAndReconnect();
+          return;
+        }
         // The server's reason when it refused (a lapsed login), else the transport's.
         setError(cause?.message && cause.message !== 'xhr poll error'
           ? cause.message
@@ -172,14 +210,10 @@ export function useRoom(code: string): Room {
         // the class afresh.
         if (roleRef.current === 'teacher') { socket?.disconnect(); }
       });
-      // The login ran out. Asking the service who we are refreshes the login cookie, after
-      // which the connection can be made again.
+      // The login ran out while connected: the server says so, then closes the connection.
       socket.on('auth:expired', () => {
-        me().then(() => socket?.connect()).catch((cause) => {
-          if (!cancelled) {
-            setError(cause instanceof Error ? cause.message : 'Your login has expired.');
-          }
-        });
+        expired = true;
+        refreshAndReconnect();
       });
       socket.on('session:started', () => setState((previous) => (
         previous ? { ...previous, sessionEnded: false } : previous

@@ -1,10 +1,10 @@
 import {
   useEffect, useId, useMemo, useRef, useState,
 } from 'react';
-import { createPortal } from 'react-dom';
 import { useIntl } from '@edx/frontend-platform/i18n';
 
-import { ChevronIcon, CloseIcon, ContentsIcon } from './icons';
+import { ChevronIcon, ContentsIcon } from './icons';
+import SidePanel, { PHONE } from './SidePanel';
 import messages from './messages';
 import {
   ancestorIds, hasChildren, splitNumber, visibleEntries, type OutlineEntry,
@@ -18,10 +18,13 @@ interface Props {
   currentSegmentId?: string | null;
   /** Where each line comes in the text, to tell which heading the current line is under. */
   order?: Map<string, number>;
+  /**
+   * Whether the drawer is open, when the page decides (it keeps one side panel open at a
+   * time). Left out, the drawer keeps track itself.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
-
-/** Below this width the drawer is the whole screen, and picking a heading puts it away. */
-const PHONE = 576;
 
 /**
  * The contents, in a drawer down the right-hand side: pick a heading and go to it.
@@ -41,20 +44,23 @@ const PHONE = 576;
  * their own view, so looking ahead never drags anyone else along.
  */
 const Contents = ({
-  outline, onJump, currentSegmentId = null, order,
+  outline, onJump, currentSegmentId = null, order, open: openProp, onOpenChange,
 }: Props) => {
   const intl = useIntl();
-  const [open, setOpen] = useState(false);
+  const [openOwn, setOpenOwn] = useState(false);
+  const open = openProp ?? openOwn;
+  const setOpen = (next: boolean) => {
+    if (openProp === undefined) { setOpenOwn(next); }
+    onOpenChange?.(next);
+  };
   // Everything starts open; a different outline (another text) opens afresh.
   const [unfolded, setUnfolded] = useState<Set<string>>(() => new Set(outline.map((entry) => entry.id)));
   useEffect(() => {
     setUnfolded(new Set(outline.map((entry) => entry.id)));
   }, [outline]);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
-  const closeRef = useRef<HTMLButtonElement | null>(null);
   const activeRef = useRef<HTMLButtonElement | null>(null);
   const panelId = useId();
-  const [headerHeight, setHeaderHeight] = useState<number | null>(null);
 
   // The last heading at or before the line the class is on: the one it is under.
   const activeIndex = useMemo(() => {
@@ -85,27 +91,10 @@ const Contents = ({
     toggleRef.current?.focus();
   };
 
-  // On opening, keyboard focus goes into the drawer, and the heading the class is under is
-  // brought into view: with a long list it may otherwise be out of sight.
+  // On opening, the heading the class is under is brought into view: with a long list it may
+  // otherwise be out of sight. (Focus and Escape are the panel's; see `SidePanel`.)
   useEffect(() => {
-    if (!open) { return; }
-    // The drawer's header is as tall as the site's top bar, so the rule under both is one line.
-    const siteHeader = Array.from(document.querySelectorAll('header'))
-      .find((el) => !el.closest('.classroom-drawer') && !el.closest('.classroom-page'));
-    const bottom = siteHeader ? siteHeader.getBoundingClientRect().bottom : 0;
-    setHeaderHeight(bottom >= 48 && bottom <= 240 ? Math.round(bottom) : null);
-    closeRef.current?.focus();
-    activeRef.current?.scrollIntoView?.({ block: 'center' });
-  }, [open]);
-
-  // Escape puts it away, from anywhere on the page while it is open.
-  useEffect(() => {
-    if (!open) { return undefined; }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setOpen(false); toggleRef.current?.focus(); }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    if (open) { activeRef.current?.scrollIntoView?.({ block: 'center' }); }
   }, [open]);
 
   const pick = (entry: OutlineEntry) => {
@@ -137,32 +126,13 @@ const Contents = ({
         <ContentsIcon />
       </button>
 
-      {/* Into the page itself, not where the button is: the button sits in the sticky header, and
-          a `position: fixed` drawer inside something sticky or transformed is fixed to *that*, not
-          to the window, which is how it ended up squeezed beside the title. */}
-      {open && createPortal(
-        <aside
+      {open && (
+        <SidePanel
           id={panelId}
-          className="classroom-drawer"
-          role="dialog"
-          aria-label={intl.formatMessage(messages.contentsHeading)}
+          title={intl.formatMessage(messages.contentsHeading)}
+          closeLabel={intl.formatMessage(messages.closeContents)}
+          onClose={close}
         >
-          <header
-            className="classroom-drawer__header"
-            style={headerHeight ? { height: headerHeight } : undefined}
-          >
-            <h2 className="classroom-drawer__title">{intl.formatMessage(messages.contentsHeading)}</h2>
-            <button
-              ref={closeRef}
-              type="button"
-              className="classroom-drawer__close"
-              aria-label={intl.formatMessage(messages.closeContents)}
-              onClick={close}
-            >
-              <CloseIcon size={20} />
-            </button>
-          </header>
-
           <ul className="classroom-drawer__list">
             {shown.map((entry) => {
               const index = outline.indexOf(entry);
@@ -216,8 +186,7 @@ const Contents = ({
               );
             })}
           </ul>
-        </aside>,
-        document.body,
+        </SidePanel>
       )}
     </>
   );
